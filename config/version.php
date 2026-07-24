@@ -8,7 +8,7 @@ return [
     'version' => '1.2.0',
     'build' => '20260724',
     // 最近发布对应的 git commit（短/长 SHA 均可）；空则仅按 version 比较
-    'commit' => '',
+    'commit' => '5838f6f',
     // 默认更新通道：master 分支最新提交，或 GitHub releases
     'channel' => 'master',
     'repo' => '2016xyz/xianimao-nav',
