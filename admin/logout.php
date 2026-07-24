@@ -7,6 +7,13 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !verify_csrf()) {
     exit;
 }
 
+if (is_logged_in()) {
+    admin_log_write('logout', '退出登录', [
+        'module' => 'auth',
+        'level' => 'info',
+    ]);
+}
+
 $_SESSION = [];
 if (ini_get('session.use_cookies')) {
     $p = session_get_cookie_params();

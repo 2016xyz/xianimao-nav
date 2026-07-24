@@ -28,8 +28,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $input['api_key'] = '';
         }
         if (ai_config_save($input)) {
+            admin_log_write('ai_save', '保存 AI 配置', [
+                'module' => 'ai',
+                'level' => 'success',
+                'detail' => [
+                    'enabled' => !empty($input['enabled']),
+                    'model' => $input['model'] ?? '',
+                    'key_updated' => !empty($_POST['update_key']) || !empty($_POST['clear_key']),
+                ],
+            ]);
             flash_set('success', 'AI 配置已保存');
         } else {
+            admin_log_write('ai_save_fail', '保存 AI 配置失败', [
+                'module' => 'ai',
+                'level' => 'error',
+            ]);
             flash_set('error', '保存失败，请检查数据库连接与 settings 表写权限');
         }
         redirect('ai.php');

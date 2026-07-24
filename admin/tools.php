@@ -43,8 +43,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $data['tools'] = $tools;
     if (save_content($data)) {
+        admin_log_write('tools_save', '保存实用工具（共 ' . count($tools) . ' 项）', [
+            'module' => 'tools',
+            'level' => 'success',
+            'detail' => ['count' => count($tools)],
+        ]);
         flash_set('success', '实用工具已保存（共 ' . count($tools) . ' 项）');
     } else {
+        admin_log_write('tools_save_fail', '实用工具保存失败', ['module' => 'tools', 'level' => 'error']);
         flash_set('error', '保存失败，请检查数据库连接');
     }
     redirect('tools.php');

@@ -55,8 +55,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $data['projects'] = $projects;
     if (save_content($data)) {
+        admin_log_write('projects_save', '保存开源项目（共 ' . count($projects) . ' 项）', [
+            'module' => 'projects',
+            'level' => 'success',
+            'detail' => ['count' => count($projects)],
+        ]);
         flash_set('success', '开源项目已保存（共 ' . count($projects) . ' 项）');
     } else {
+        admin_log_write('projects_save_fail', '开源项目保存失败', ['module' => 'projects', 'level' => 'error']);
         flash_set('error', '保存失败，请检查数据库连接');
     }
     redirect('projects.php');

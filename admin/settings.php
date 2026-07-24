@@ -98,8 +98,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'seo_head_html' => sanitize_admin_html($_POST['seo_head_html'] ?? ''),
     ]);
     if (save_content($content)) {
+        admin_log_write('settings_save', '保存站点设置', [
+            'module' => 'settings',
+            'level' => 'success',
+            'detail' => [
+                'name' => $content['site']['name'] ?? '',
+                'hero_bg_changed' => ($heroBg !== $prevHero),
+            ],
+        ]);
         flash_set('success', '站点设置已保存');
     } else {
+        admin_log_write('settings_save_fail', '保存站点设置失败', [
+            'module' => 'settings',
+            'level' => 'error',
+        ]);
         flash_set('error', '保存失败，请检查 data 目录写权限');
     }
     redirect('settings.php');

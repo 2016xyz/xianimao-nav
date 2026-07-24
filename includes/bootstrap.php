@@ -719,6 +719,338 @@ function update_admin_password($username, $newHash)
 }
 
 /**
+ * 后台操作日志：允许的 level
+ * @return string[]
+ */
+function admin_log_levels()
+{
+    return ['info', 'success', 'warning', 'error'];
+}
+
+/**
+ * 写入后台操作 / 审计日志（失败静默，不影响主流程）
+ *
+ * @param string $action  机器可读动作，如 login_ok / settings_save
+ * @param string $message 人类可读摘要
+ * @param array  $opts    module, level, detail(array|string), username, admin_id
+ * @return bool
+ */
+function admin_log_write($action, $message, array $opts = [])
+{
+    $action = security_clean_text((string) $action, 64);
+    if ($action === '') {
+        $action = 'unknown';
+    }
+    $message = security_clean_text((string) $message, 500);
+    if ($message === '') {
+        $message = $action;
+    }
+    $module = security_clean_text((string) ($opts['module'] ?? 'system'), 40);
+    if ($module === '') {
+        $module = 'system';
+    }
+    $level = security_enum((string) ($opts['level'] ?? 'info'), admin_log_levels()) ?: 'info';
+
+    $username = (string) ($opts['username'] ?? ($_SESSION['admin_username'] ?? ''));
+    $username = security_clean_text($username, 64);
+    $adminId = isset($opts['admin_id'])
+        ? (int) $opts['admin_id']
+        : (int) ($_SESSION['admin_id'] ?? 0);
+    if ($adminId < 0) {
+        $adminId = 0;
+    }
+
+    $detail = $opts['detail'] ?? '';
+    if (is_array($detail)) {
+        // 避免把密钥类字段写入日志
+        $redactKeys = ['password', 'pass', 'api_key', 'client_secret', 'cookie', 'secret', 'token', 'auth'];
+        $safe = [];
+        foreach ($detail as $k => $v) {
+            $lk = strtolower((string) $k);
+            $redact = false;
+            foreach ($redactKeys as $rk) {
+                if ($lk === $rk || strpos($lk, $rk) !== false) {
+                    $redact = true;
+                    break;
+                }
+            }
+            if ($redact) {
+                $safe[$k] = '[redacted]';
+            } elseif (is_scalar($v) || $v === null) {
+                $safe[$k] = $v;
+            } else {
+                $safe[$k] = '[object]';
+            }
+        }
+        $detail = json_encode($safe, JSON_UNESCAPED_UNICODE);
+        if ($detail === false) {
+            $detail = '';
+        }
+    } else {
+        $detail = security_clean_text((string) $detail, 2000);
+    }
+    if (function_exists('mb_strlen') && mb_strlen($detail, 'UTF-8') > 4000) {
+        $detail = mb_substr($detail, 0, 4000, 'UTF-8');
+    } elseif (strlen($detail) > 4000) {
+        $detail = substr($detail, 0, 4000);
+    }
+
+    $ip = security_ip();
+    $ua = security_clean_text((string) ($_SERVER['HTTP_USER_AGENT'] ?? ''), 255);
+    $createdAt = date('Y-m-d H:i:s');
+
+    $row = [
+        'admin_id' => $adminId,
+        'username' => $username,
+        'action' => $action,
+        'module' => $module,
+        'level' => $level,
+        'message' => $message,
+        'detail' => $detail,
+        'ip' => $ip,
+        'user_agent' => $ua,
+        'created_at' => $createdAt,
+    ];
+
+    try {
+        ensure_extra_tables();
+        $stmt = db()->prepare(
+            'INSERT INTO admin_logs (admin_id, username, action, module, level, message, detail, ip, user_agent, created_at)
+             VALUES (?,?,?,?,?,?,?,?,?,?)'
+        );
+        return $stmt->execute([
+            $row['admin_id'],
+            $row['username'],
+            $row['action'],
+            $row['module'],
+            $row['level'],
+            $row['message'],
+            $row['detail'],
+            $row['ip'],
+            $row['user_agent'],
+            $row['created_at'],
+        ]);
+    } catch (Throwable $e) {
+        // JSON 文件回退（数据库不可用时）
+        $file = ROOT_PATH . '/data/admin_logs.json';
+        $list = [];
+        if (is_file($file)) {
+            $tmp = json_decode((string) file_get_contents($file), true);
+            if (is_array($tmp)) {
+                $list = $tmp;
+            }
+        }
+        $row['id'] = 'L' . time() . mt_rand(100, 999);
+        $list[] = $row;
+        // 最多保留 2000 条
+        if (count($list) > 2000) {
+            $list = array_slice($list, -2000);
+        }
+        $dir = dirname($file);
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0755, true);
+        }
+        return @file_put_contents(
+            $file,
+            json_encode($list, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) . "\n",
+            LOCK_EX
+        ) !== false;
+    }
+}
+
+/**
+ * 查询后台日志
+ *
+ * @param array $filters module, action, level, username, q, date_from, date_to
+ * @param int   $page
+ * @param int   $perPage
+ * @return array{items:array,total:int,page:int,per_page:int,pages:int}
+ */
+function admin_log_list(array $filters = [], $page = 1, $perPage = 50)
+{
+    $page = max(1, (int) $page);
+    $perPage = security_sql_limit($perPage, 50, 100);
+    $offset = ($page - 1) * $perPage;
+
+    $module = security_clean_text((string) ($filters['module'] ?? ''), 40);
+    $action = security_clean_text((string) ($filters['action'] ?? ''), 64);
+    $level = security_enum((string) ($filters['level'] ?? ''), admin_log_levels());
+    $username = security_clean_text((string) ($filters['username'] ?? ''), 64);
+    $q = security_clean_text((string) ($filters['q'] ?? ''), 100);
+    $dateFrom = (string) ($filters['date_from'] ?? '');
+    $dateTo = (string) ($filters['date_to'] ?? '');
+    if ($dateFrom !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateFrom)) {
+        $dateFrom = '';
+    }
+    if ($dateTo !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateTo)) {
+        $dateTo = '';
+    }
+
+    $where = [];
+    $params = [];
+    if ($module !== '') {
+        $where[] = 'module = ?';
+        $params[] = $module;
+    }
+    if ($action !== '') {
+        $where[] = 'action = ?';
+        $params[] = $action;
+    }
+    if ($level !== null && $level !== '') {
+        $where[] = 'level = ?';
+        $params[] = $level;
+    }
+    if ($username !== '') {
+        $where[] = 'username = ?';
+        $params[] = $username;
+    }
+    if ($q !== '') {
+        $where[] = '(message LIKE ? OR action LIKE ? OR detail LIKE ?)';
+        $like = '%' . $q . '%';
+        $params[] = $like;
+        $params[] = $like;
+        $params[] = $like;
+    }
+    if ($dateFrom !== '') {
+        $where[] = 'created_at >= ?';
+        $params[] = $dateFrom . ' 00:00:00';
+    }
+    if ($dateTo !== '') {
+        $where[] = 'created_at <= ?';
+        $params[] = $dateTo . ' 23:59:59';
+    }
+    $whereSql = $where ? ('WHERE ' . implode(' AND ', $where)) : '';
+
+    try {
+        ensure_extra_tables();
+        $pdo = db();
+        $stmt = $pdo->prepare('SELECT COUNT(*) FROM admin_logs ' . $whereSql);
+        $stmt->execute($params);
+        $total = (int) $stmt->fetchColumn();
+
+        $sql = 'SELECT * FROM admin_logs ' . $whereSql . ' ORDER BY id DESC LIMIT ' . (int) $perPage . ' OFFSET ' . (int) $offset;
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        $items = $stmt->fetchAll() ?: [];
+    } catch (Throwable $e) {
+        $file = ROOT_PATH . '/data/admin_logs.json';
+        $list = [];
+        if (is_file($file)) {
+            $tmp = json_decode((string) file_get_contents($file), true);
+            if (is_array($tmp)) {
+                $list = $tmp;
+            }
+        }
+        $list = array_values(array_filter($list, static function ($r) use ($module, $action, $level, $username, $q, $dateFrom, $dateTo) {
+            if ($module !== '' && ($r['module'] ?? '') !== $module) {
+                return false;
+            }
+            if ($action !== '' && ($r['action'] ?? '') !== $action) {
+                return false;
+            }
+            if ($level !== null && $level !== '' && ($r['level'] ?? '') !== $level) {
+                return false;
+            }
+            if ($username !== '' && ($r['username'] ?? '') !== $username) {
+                return false;
+            }
+            if ($q !== '') {
+                $hay = ($r['message'] ?? '') . ' ' . ($r['action'] ?? '') . ' ' . ($r['detail'] ?? '');
+                if (function_exists('mb_stripos')) {
+                    if (mb_stripos($hay, $q, 0, 'UTF-8') === false) {
+                        return false;
+                    }
+                } elseif (stripos($hay, $q) === false) {
+                    return false;
+                }
+            }
+            $ca = (string) ($r['created_at'] ?? '');
+            if ($dateFrom !== '' && $ca < $dateFrom . ' 00:00:00') {
+                return false;
+            }
+            if ($dateTo !== '' && $ca > $dateTo . ' 23:59:59') {
+                return false;
+            }
+            return true;
+        }));
+        usort($list, static function ($a, $b) {
+            return strcmp((string) ($b['created_at'] ?? ''), (string) ($a['created_at'] ?? ''));
+        });
+        $total = count($list);
+        $items = array_slice($list, $offset, $perPage);
+    }
+
+    $pages = $total > 0 ? (int) ceil($total / $perPage) : 1;
+    if ($page > $pages) {
+        $page = $pages;
+    }
+
+    return [
+        'items' => $items,
+        'total' => $total,
+        'page' => $page,
+        'per_page' => $perPage,
+        'pages' => $pages,
+    ];
+}
+
+/**
+ * 清空后台日志（可选保留最近 N 天）
+ *
+ * @param int $keepDays 0 = 全部清空；>0 仅删除更早的
+ * @return array{ok:bool,deleted:int,message:string}
+ */
+function admin_log_clear($keepDays = 0)
+{
+    $keepDays = (int) $keepDays;
+    if ($keepDays < 0) {
+        $keepDays = 0;
+    }
+    if ($keepDays > 3650) {
+        $keepDays = 3650;
+    }
+
+    try {
+        ensure_extra_tables();
+        $pdo = db();
+        if ($keepDays > 0) {
+            $cutoff = date('Y-m-d H:i:s', time() - $keepDays * 86400);
+            $stmt = $pdo->prepare('DELETE FROM admin_logs WHERE created_at < ?');
+            $stmt->execute([$cutoff]);
+            $deleted = $stmt->rowCount();
+            return ['ok' => true, 'deleted' => $deleted, 'message' => '已删除 ' . $deleted . ' 条 ' . $keepDays . ' 天前的日志'];
+        }
+        $deleted = (int) $pdo->exec('DELETE FROM admin_logs');
+        return ['ok' => true, 'deleted' => $deleted, 'message' => '已清空全部日志（' . $deleted . ' 条）'];
+    } catch (Throwable $e) {
+        $file = ROOT_PATH . '/data/admin_logs.json';
+        if (!is_file($file)) {
+            return ['ok' => true, 'deleted' => 0, 'message' => '无日志可清理'];
+        }
+        if ($keepDays <= 0) {
+            @unlink($file);
+            return ['ok' => true, 'deleted' => 0, 'message' => '已清空全部日志'];
+        }
+        $list = json_decode((string) file_get_contents($file), true);
+        if (!is_array($list)) {
+            return ['ok' => true, 'deleted' => 0, 'message' => '无日志可清理'];
+        }
+        $cutoff = date('Y-m-d H:i:s', time() - $keepDays * 86400);
+        $new = [];
+        $deleted = 0;
+        foreach ($list as $r) {
+            if ((string) ($r['created_at'] ?? '') < $cutoff) {
+                $deleted++;
+            } else {
+                $new[] = $r;
+            }
+        }
+        @file_put_contents($file, json_encode($new, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) . "\n", LOCK_EX);
+        return ['ok' => true, 'deleted' => $deleted, 'message' => '已删除 ' . $deleted . ' 条 ' . $keepDays . ' 天前的日志'];
+    }
+}
+
+/**
  * 运行时配置 / 密钥：统一读写 settings 表（DB 主存储）
  * 旧版 site_extra.json / 其它 JSON 仅只读回退；新写入不再落盘密钥。
  *

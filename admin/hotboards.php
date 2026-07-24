@@ -23,6 +23,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'client_secret' => $_POST['linuxdo_client_secret'] ?? '',
             'redirect_uri' => $_POST['linuxdo_redirect_uri'] ?? '',
         ]);
+        admin_log_write('hotboards_linuxdo_oauth_app', '保存 Linux.do OAuth 应用配置', [
+            'module' => 'hotboards',
+            'level' => 'warning',
+        ]);
         flash_set('success', 'Linux.do Connect 应用配置已保存');
         redirect('hotboards.php#linuxdo-auth');
     }
@@ -42,8 +46,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ];
         if (hot_linuxdo_save_credentials($input)) {
             if (!empty($_POST['clear_linuxdo'])) {
+                admin_log_write('hotboards_linuxdo_clear', '清除 Linux.do 登录凭证', [
+                    'module' => 'hotboards',
+                    'level' => 'warning',
+                ]);
                 flash_set('success', '已清除 Linux.do 登录凭证');
             } else {
+                admin_log_write('hotboards_linuxdo_cred', '保存 Linux.do 登录凭证', [
+                    'module' => 'hotboards',
+                    'level' => 'warning',
+                ]);
                 flash_set('success', 'Linux.do 凭证已保存');
             }
         } else {
@@ -91,6 +103,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // —— 吾爱 ——
     if ($action === 'clear_52pojie') {
         hot_52pojie_save_credentials(['clear' => 1]);
+        admin_log_write('hotboards_52pojie_clear', '清除吾爱登录凭证', [
+            'module' => 'hotboards',
+            'level' => 'warning',
+        ]);
         flash_set('success', '已清除吾爱登录凭证');
         redirect('hotboards.php#52pojie-auth');
     }
@@ -161,8 +177,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 @unlink($f);
             }
         }
+        admin_log_write('hotboards_save', '保存热榜显示配置（共 ' . count($ordered) . ' 个）', [
+            'module' => 'hotboards',
+            'level' => 'success',
+            'detail' => ['enabled' => $ordered],
+        ]);
         flash_set('success', '热榜显示配置已保存（共 ' . count($ordered) . ' 个）');
     } else {
+        admin_log_write('hotboards_save_fail', '热榜配置保存失败', ['module' => 'hotboards', 'level' => 'error']);
         flash_set('error', '保存失败，请检查数据库或 config 目录写权限');
     }
     redirect('hotboards.php');

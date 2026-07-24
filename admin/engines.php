@@ -49,6 +49,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $content['engines'] = array_values($list);
     if (!save_content($content)) {
         flash_set('error', '保存失败，请检查数据库连接');
+        admin_log_write('engines_save_fail', '搜索引擎保存失败', ['module' => 'engines', 'level' => 'error', 'detail' => ['action' => $action]]);
+    } else {
+        $labels = ['save' => '保存搜索引擎', 'delete' => '删除搜索引擎', 'move' => '调整搜索引擎排序'];
+        admin_log_write('engines_' . ($action ?: 'save'), $labels[$action] ?? '更新搜索引擎', [
+            'module' => 'engines',
+            'level' => 'success',
+            'detail' => ['action' => $action, 'count' => count($list)],
+        ]);
     }
     redirect('engines.php');
 }

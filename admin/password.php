@@ -37,11 +37,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     try {
         if (update_admin_password($username, password_hash($new, PASSWORD_DEFAULT))) {
+            admin_log_write('password_change', '修改登录密码成功', [
+                'module' => 'password',
+                'level' => 'warning',
+            ]);
             flash_set('success', '密码已修改，请牢记新密码');
         } else {
+            admin_log_write('password_change_fail', '修改登录密码失败', [
+                'module' => 'password',
+                'level' => 'error',
+            ]);
             flash_set('error', '密码更新失败');
         }
     } catch (Throwable $e) {
+        admin_log_write('password_change_fail', '修改登录密码异常', [
+            'module' => 'password',
+            'level' => 'error',
+        ]);
         flash_set('error', '密码更新失败，请稍后重试');
     }
     redirect('password.php');

@@ -1500,6 +1500,7 @@ table.data-table tr:hover td {
 .admin-nav-ico[data-icon="chat"]::before { content: "💬"; font-size: 0.75rem; }
 .admin-nav-ico[data-icon="spark"]::before { content: "✦"; font-size: 0.9rem; }
 .admin-nav-ico[data-icon="mail"]::before { content: "✉"; font-size: 0.85rem; }
+.admin-nav-ico[data-icon="list"]::before { content: "☰"; font-size: 0.9rem; }
 .admin-nav-ico[data-icon="lock"]::before { content: "🔒"; font-size: 0.75rem; }
 
 .admin-nav-label {

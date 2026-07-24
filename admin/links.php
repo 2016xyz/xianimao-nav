@@ -53,8 +53,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $data['links'] = $links;
     $data['site']['show_friend_links'] = !empty($_POST['show_friend_links']) ? '1' : '0';
     if (save_content($data)) {
+        admin_log_write('links_save', '保存友情链接（共 ' . count($links) . ' 项）', [
+            'module' => 'links',
+            'level' => 'success',
+            'detail' => [
+                'count' => count($links),
+                'show_friend_links' => $data['site']['show_friend_links'],
+            ],
+        ]);
         flash_set('success', '友情链接已保存（共 ' . count($links) . ' 项）');
     } else {
+        admin_log_write('links_save_fail', '友情链接保存失败', ['module' => 'links', 'level' => 'error']);
         flash_set('error', '保存失败，请检查数据库连接');
     }
     redirect('links.php');

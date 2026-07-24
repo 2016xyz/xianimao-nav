@@ -34,7 +34,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     };
 
     if ($action === 'save') {
-        $ok = smtp_save_config($smtpInput());
+        $input = $smtpInput();
+        $ok = smtp_save_config($input);
+        admin_log_write($ok ? 'smtp_save' : 'smtp_save_fail', $ok ? '保存 SMTP / 登录验证配置' : '保存 SMTP 配置失败', [
+            'module' => 'smtp',
+            'level' => $ok ? 'success' : 'error',
+            'detail' => [
+                'enabled' => !empty($input['enabled']),
+                'host' => $input['host'] ?? '',
+                'login_email_verify' => !empty($input['login_email_verify']),
+            ],
+        ]);
         flash_set($ok ? 'success' : 'error', $ok ? 'SMTP / 登录验证配置已保存' : '保存失败，请检查目录写权限');
         redirect('smtp.php');
     }
@@ -58,6 +68,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $html = mailer_login_code_html('123456', $_SESSION['admin_username'] ?? 'admin', $siteName);
         $html = str_replace('123456', 'TEST' . random_int(100, 999), $html);
         $result = mailer_send($to, '【' . $siteName . '】SMTP 测试邮件', $html, '这是一封 SMTP 测试邮件。');
+        admin_log_write(
+            !empty($result['ok']) ? 'smtp_test' : 'smtp_test_fail',
+            !empty($result['ok']) ? ('发送 SMTP 测试邮件至 ' . $to) : ('SMTP 测试失败：' . ($result['message'] ?? '')),
+            [
+                'module' => 'smtp',
+                'level' => !empty($result['ok']) ? 'info' : 'error',
+                'detail' => ['to' => $to],
+            ]
+        );
         if (!empty($result['ok'])) {
             flash_set('success', '测试邮件已发送至 ' . $to);
         } else {

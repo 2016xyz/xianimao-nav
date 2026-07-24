@@ -36,8 +36,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     $data['sites'] = $rows;
     if (save_content($data)) {
+        admin_log_write('sites_save', '保存自营站点（共 ' . count($rows) . ' 项）', [
+            'module' => 'sites',
+            'level' => 'success',
+            'detail' => ['count' => count($rows)],
+        ]);
         flash_set('success', '自营站点已保存');
     } else {
+        admin_log_write('sites_save_fail', '自营站点保存失败', ['module' => 'sites', 'level' => 'error']);
         flash_set('error', '保存失败');
     }
     redirect('sites.php');

@@ -91,8 +91,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $_SESSION['login_email_last_send']
                     );
                     session_regenerate_id(true);
+                    admin_log_write('login_ok', '邮箱验证码登录成功', [
+                        'module' => 'auth',
+                        'level' => 'success',
+                        'username' => $u,
+                        'admin_id' => (int) ($_SESSION['admin_id'] ?? 0),
+                        'detail' => ['method' => 'email_code'],
+                    ]);
                     redirect('index.php');
                 }
+                admin_log_write('login_fail', '邮箱验证码错误', [
+                    'module' => 'auth',
+                    'level' => 'warning',
+                    'username' => $u,
+                    'admin_id' => 0,
+                    'detail' => ['method' => 'email_code'],
+                ]);
                 $error = $vr['message'] ?? '邮箱验证失败';
                 $step = 'email';
                 $usernamePrefill = $u;
@@ -121,11 +135,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             if (!captcha_verify($captcha)) {
                 $error = '图形验证码错误或已过期';
+                admin_log_write('login_fail', '登录失败：图形验证码错误', [
+                    'module' => 'auth',
+                    'level' => 'warning',
+                    'username' => $username,
+                    'admin_id' => 0,
+                    'detail' => ['reason' => 'captcha'],
+                ]);
             } else {
                 $admin = load_admin_by_username($username);
                 $ok = $admin && !empty($admin['password_hash']) && password_verify($password, $admin['password_hash']);
                 if (!$ok) {
                     $error = '用户名或密码错误';
+                    admin_log_write('login_fail', '登录失败：用户名或密码错误', [
+                        'module' => 'auth',
+                        'level' => 'warning',
+                        'username' => $username,
+                        'admin_id' => 0,
+                        'detail' => ['reason' => 'bad_credentials'],
+                    ]);
                 } elseif ($emailVerifyOn) {
                     if (!smtp_is_ready()) {
                         $error = '已开启邮箱验证码登录，但 SMTP 未配置完成，请联系管理员';
@@ -139,8 +167,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         if (!empty($res['ok'])) {
                             $_SESSION['login_email_last_send'] = time();
                             $info = $res['message'];
+                            admin_log_write('login_email_sent', '密码已验证，已发送邮箱验证码', [
+                                'module' => 'auth',
+                                'level' => 'info',
+                                'username' => $admin['username'],
+                                'admin_id' => (int) $admin['id'],
+                            ]);
                         } else {
                             $error = '密码正确，但验证码发送失败：' . ($res['message'] ?? '');
+                            admin_log_write('login_email_fail', '邮箱验证码发送失败', [
+                                'module' => 'auth',
+                                'level' => 'error',
+                                'username' => $admin['username'],
+                                'admin_id' => (int) $admin['id'],
+                                'detail' => ['reason' => 'smtp_send'],
+                            ]);
                         }
                     }
                 } else {
@@ -148,6 +189,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $_SESSION['admin_username'] = $admin['username'];
                     $_SESSION['admin_id'] = (int) $admin['id'];
                     session_regenerate_id(true);
+                    admin_log_write('login_ok', '账号密码登录成功', [
+                        'module' => 'auth',
+                        'level' => 'success',
+                        'username' => $admin['username'],
+                        'admin_id' => (int) $admin['id'],
+                        'detail' => ['method' => 'password'],
+                    ]);
                     redirect('index.php');
                 }
             }

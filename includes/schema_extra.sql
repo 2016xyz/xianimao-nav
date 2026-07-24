@@ -34,3 +34,23 @@ CREATE TABLE IF NOT EXISTS `messages` (
   KEY `idx_type_status` (`type`, `status`),
   KEY `idx_created` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `admin_logs` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `admin_id` int unsigned NOT NULL DEFAULT 0,
+  `username` varchar(64) NOT NULL DEFAULT '',
+  `action` varchar(64) NOT NULL DEFAULT '',
+  `module` varchar(40) NOT NULL DEFAULT '',
+  `level` varchar(16) NOT NULL DEFAULT 'info',
+  `message` varchar(500) NOT NULL DEFAULT '',
+  `detail` text,
+  `ip` varchar(64) NOT NULL DEFAULT '',
+  `user_agent` varchar(255) NOT NULL DEFAULT '',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_created` (`created_at`),
+  KEY `idx_action` (`action`),
+  KEY `idx_module` (`module`),
+  KEY `idx_level` (`level`),
+  KEY `idx_username` (`username`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

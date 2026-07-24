@@ -42,6 +42,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $content['shortcuts'] = array_values($list);
     if (!save_content($content)) {
         flash_set('error', '保存失败，请检查数据库连接');
+        admin_log_write('shortcuts_save_fail', '快捷入口保存失败', ['module' => 'shortcuts', 'level' => 'error', 'detail' => ['action' => $action]]);
+    } else {
+        $labels = ['save' => '保存快捷入口', 'delete' => '删除快捷入口', 'move' => '调整快捷入口排序'];
+        admin_log_write('shortcuts_' . ($action ?: 'save'), $labels[$action] ?? '更新快捷入口', [
+            'module' => 'shortcuts',
+            'level' => 'success',
+            'detail' => ['action' => $action, 'count' => count($list)],
+        ]);
     }
     redirect('shortcuts.php');
 }

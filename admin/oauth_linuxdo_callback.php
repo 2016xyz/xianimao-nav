@@ -19,8 +19,18 @@ $result = oauth_linuxdo_handle_callback($code, $state);
 
 if (!empty($result['ok'])) {
     $u = !empty($result['username']) ? ('（' . $result['username'] . '）') : '';
+    admin_log_write('hotboards_linuxdo_oauth', 'Linux.do OAuth 授权成功' . $u, [
+        'module' => 'hotboards',
+        'level' => 'success',
+        'detail' => ['username' => $result['username'] ?? ''],
+    ]);
     flash_set('success', ($result['message'] ?? '授权成功') . $u);
 } else {
+    admin_log_write('hotboards_linuxdo_oauth_fail', 'Linux.do OAuth 授权失败', [
+        'module' => 'hotboards',
+        'level' => 'error',
+        'detail' => ['message' => $result['message'] ?? ''],
+    ]);
     flash_set('error', $result['message'] ?? '授权失败');
 }
 redirect('hotboards.php#linuxdo-auth');

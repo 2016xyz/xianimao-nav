@@ -23,8 +23,18 @@ $result = oauth_52pojie_handle_callback([
 ]);
 
 if (!empty($result['ok'])) {
+    admin_log_write('hotboards_52pojie_oauth', '吾爱 OAuth 授权成功', [
+        'module' => 'hotboards',
+        'level' => 'success',
+        'detail' => ['username' => $result['username'] ?? ''],
+    ]);
     flash_set('success', $result['message'] ?? '授权成功');
 } else {
+    admin_log_write('hotboards_52pojie_oauth_fail', '吾爱 OAuth 授权失败', [
+        'module' => 'hotboards',
+        'level' => 'error',
+        'detail' => ['message' => $result['message'] ?? ''],
+    ]);
     flash_set('error', $result['message'] ?? '授权失败');
 }
 redirect('hotboards.php#52pojie-auth');

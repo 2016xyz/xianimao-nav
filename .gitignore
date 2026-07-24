@@ -14,6 +14,7 @@
 /data/linuxdo_auth.json
 /data/52pojie_auth.json
 /data/messages.json
+/data/admin_logs.json
 /data/cache/*
 !/data/cache/.gitkeep
 

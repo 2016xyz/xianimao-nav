@@ -16,9 +16,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($action === 'toggle_message') {
         $data = load_content();
-        $data['site']['enable_message'] = !empty($_POST['enable_message']) ? '1' : '0';
+        $enabled = !empty($_POST['enable_message']);
+        $data['site']['enable_message'] = $enabled ? '1' : '0';
         if (save_content($data)) {
-            flash_set('success', !empty($_POST['enable_message']) ? '已开启在线留言' : '已关闭在线留言');
+            admin_log_write('messages_toggle', $enabled ? '开启在线留言' : '关闭在线留言', [
+                'module' => 'messages',
+                'level' => 'success',
+                'detail' => ['enable_message' => $enabled ? '1' : '0'],
+            ]);
+            flash_set('success', $enabled ? '已开启在线留言' : '已关闭在线留言');
         } else {
             flash_set('error', '保存失败');
         }
@@ -36,6 +42,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             redirect('messages.php');
         }
         if (update_message_status($id, $status)) {
+            admin_log_write('messages_status', '更新留言状态为 ' . $status, [
+                'module' => 'messages',
+                'level' => 'info',
+                'detail' => ['id' => $idRaw, 'status' => $status],
+            ]);
             flash_set('success', '状态已更新');
         } else {
             flash_set('error', '更新失败');
@@ -45,6 +56,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($action === 'delete' && $idRaw !== '') {
         if (delete_message($id)) {
+            admin_log_write('messages_delete', '删除留言 #' . $idRaw, [
+                'module' => 'messages',
+                'level' => 'warning',
+                'detail' => ['id' => $idRaw],
+            ]);
             flash_set('success', '已删除');
         } else {
             flash_set('error', '删除失败');
