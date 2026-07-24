@@ -122,66 +122,6 @@ function ensure_extra_tables()
 }
 
 /**
- * 读写 settings 单项
- */
-function setting_get($key, $default = '')
-{
-    try {
-        ensure_extra_tables();
-        $stmt = db()->prepare('SELECT svalue FROM settings WHERE skey = ? LIMIT 1');
-        $stmt->execute([$key]);
-        $row = $stmt->fetch();
-        if ($row && array_key_exists('svalue', $row)) {
-            return $row['svalue'];
-        }
-    } catch (Throwable $e) {
-        // fallthrough
-    }
-    $file = ROOT_PATH . '/config/site_extra.json';
-    if (is_file($file)) {
-        $json = json_decode(file_get_contents($file), true);
-        if (is_array($json) && array_key_exists($key, $json)) {
-            return $json[$key];
-        }
-    }
-    return $default;
-}
-
-function setting_set($key, $value)
-{
-    $okDb = false;
-    try {
-        ensure_extra_tables();
-        $stmt = db()->prepare('INSERT INTO settings (skey, svalue) VALUES (?, ?) ON DUPLICATE KEY UPDATE svalue = VALUES(svalue)');
-        $okDb = $stmt->execute([$key, (string) $value]);
-    } catch (Throwable $e) {
-        $okDb = false;
-    }
-
-    $file = ROOT_PATH . '/config/site_extra.json';
-    $json = [];
-    if (is_file($file)) {
-        $tmp = json_decode(file_get_contents($file), true);
-        if (is_array($tmp)) {
-            $json = $tmp;
-        }
-    }
-    $json[$key] = (string) $value;
-    $dir = dirname($file);
-    if (!is_dir($dir)) {
-        @mkdir($dir, 0755, true);
-    }
-    $okFile = @file_put_contents($file, json_encode($json, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) . "\n", LOCK_EX) !== false;
-    return $okDb || $okFile;
-}
-
-function setting_bool($key, $default = true)
-{
-    $v = setting_get($key, $default ? '1' : '0');
-    return $v === '1' || $v === 1 || $v === true || $v === 'true' || $v === 'on';
-}
-
-/**
  * 从数据库读取可管理内容
  */
 function load_content()
@@ -223,9 +163,17 @@ function load_content()
     // SEO 等扩展字段：库中缺失时从 JSON 补齐（升级兼容）
     $extraSiteKeys = [
         'hero_bg',
-        'seo_title', 'seo_keywords', 'seo_description', 'seo_author', 'seo_robots',
-        'seo_canonical', 'seo_og_image', 'seo_baidu_verify', 'seo_google_verify',
-        'seo_bing_verify', 'seo_head_html',
+        'seo_title',
+        'seo_keywords',
+        'seo_description',
+        'seo_author',
+        'seo_robots',
+        'seo_canonical',
+        'seo_og_image',
+        'seo_baidu_verify',
+        'seo_google_verify',
+        'seo_bing_verify',
+        'seo_head_html',
     ];
     $needExtraFallback = false;
     foreach ($extraSiteKeys as $sk) {
@@ -771,7 +719,7 @@ function update_admin_password($username, $newHash)
 
 /**
  * 运行时配置 / 密钥：统一读写 settings 表（DB 主存储）
- * 旧版 JSON 文件仅作一次性迁移回退，新写入不再落盘密钥。
+ * 旧版 site_extra.json / 其它 JSON 仅只读回退；新写入不再落盘密钥。
  *
  * @return array 请求内缓存（引用）
  */
@@ -792,6 +740,9 @@ function setting_get($key, $default = '')
         return $cache[$key];
     }
     try {
+        if (function_exists('ensure_extra_tables')) {
+            ensure_extra_tables();
+        }
         $stmt = db()->prepare('SELECT svalue FROM settings WHERE skey = ? LIMIT 1');
         $stmt->execute([$key]);
         $row = $stmt->fetch();
@@ -801,6 +752,15 @@ function setting_get($key, $default = '')
         }
     } catch (Throwable $e) {
         // 安装前或表不存在
+    }
+    // 遗留 site_extra.json 只读回退
+    $file = ROOT_PATH . '/config/site_extra.json';
+    if (is_file($file)) {
+        $json = json_decode((string) file_get_contents($file), true);
+        if (is_array($json) && array_key_exists($key, $json)) {
+            $cache[$key] = $json[$key];
+            return $cache[$key];
+        }
     }
     return $default;
 }
@@ -813,6 +773,9 @@ function setting_set($key, $value)
     }
     $value = (string) $value;
     try {
+        if (function_exists('ensure_extra_tables')) {
+            ensure_extra_tables();
+        }
         $stmt = db()->prepare('INSERT INTO settings (skey, svalue) VALUES (?, ?) ON DUPLICATE KEY UPDATE svalue = VALUES(svalue)');
         $ok = $stmt->execute([$key, $value]);
         if ($ok) {
@@ -828,7 +791,7 @@ function setting_set($key, $value)
 function setting_bool($key, $default = false)
 {
     $v = setting_get($key, $default ? '1' : '0');
-    return $v === '1' || $v === 1 || $v === true || $v === 'true' || $v === 'yes';
+    return $v === '1' || $v === 1 || $v === true || $v === 'true' || $v === 'yes' || $v === 'on';
 }
 
 /**
