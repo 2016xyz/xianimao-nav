@@ -30,7 +30,7 @@
 - **后端**：PHP ≥ 7.4，PDO MySQL（`ATTR_EMULATE_PREPARES=false`）
 - **前台**：服务端渲染 + Bootstrap 5 / jQuery（本地静态资源）
 - **后台 UI**：PHP SSR + 本地 Vue 3（侧栏折叠、按钮涟漪等壳层增强，业务不进 Vue 模板）
-- **存储**：MySQL 为主，`content.json` / 文件配置为回退与密钥落盘
+- **存储**：MySQL 为主（含运行时密钥 `settings.secret_*`）；`content.json` 与旧配置文件仅回退/迁移
 - **邮件**：原生 SMTP（SSL / TLS / none）+ HTML 邮件模板
 - **安全**：见 [docs/SECURITY.md](docs/SECURITY.md)
 
