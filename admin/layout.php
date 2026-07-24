@@ -43,7 +43,12 @@ function admin_layout_start($title, $page = '')
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?php echo e($title); ?> - <?php echo e($siteName); ?></title>
-    <link rel="stylesheet" href="assets/admin.css">
+    <?php
+    $v = @filemtime(__DIR__ . '/assets/admin.css') ?: time();
+    $vv = @filemtime(__DIR__ . '/assets/admin-vue.js') ?: time();
+    $vj = @filemtime(__DIR__ . '/assets/vendor/vue.global.prod.js') ?: time();
+    ?>
+    <link rel="stylesheet" href="assets/admin.css?v=<?php echo (int) $v; ?>">
     <meta name="referrer" content="strict-origin-when-cross-origin">
 </head>
 <body class="admin-body">
@@ -132,8 +137,8 @@ function admin_layout_end(array $extraScripts = [])
         </div>
     </div>
     <div id="admin-vue-root" hidden aria-hidden="true"></div>
-    <script src="assets/vendor/vue.global.prod.js"></script>
-    <script src="assets/admin-vue.js"></script>
+    <script src="assets/vendor/vue.global.prod.js?v=<?php echo (int) $vj; ?>"></script>
+    <script src="assets/admin-vue.js?v=<?php echo (int) $vv; ?>"></script>
     <?php foreach ($extraScripts as $src): ?>
         <script src="<?php echo e($src); ?>"></script>
     <?php endforeach; ?>

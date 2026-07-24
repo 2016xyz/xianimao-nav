@@ -1,20 +1,36 @@
 :root {
-  --bg: #f0f2f7;
+  --bg: #eef1f8;
+  --bg-mesh-a: rgba(99, 102, 241, 0.09);
+  --bg-mesh-b: rgba(14, 165, 233, 0.07);
+  --bg-mesh-c: rgba(168, 85, 247, 0.06);
   --panel: #ffffff;
-  --text: #1e293b;
+  --text: #0f172a;
   --muted: #64748b;
   --border: #e2e8f0;
+  --border-strong: #cbd5e1;
   --primary: #4f46e5;
+  --primary-hover: #4338ca;
   --primary-soft: #eef2ff;
+  --primary-glow: rgba(79, 70, 229, 0.28);
+  --accent: #0d9488;
   --danger: #dc2626;
   --danger-soft: #fef2f2;
   --success: #059669;
   --success-soft: #ecfdf5;
-  --sidebar: #111827;
+  --warning: #d97706;
+  --warning-soft: #fffbeb;
+  --sidebar: #0b1220;
+  --sidebar-elevated: #111827;
   --sidebar-text: #cbd5e1;
   --radius: 12px;
-  --shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
-  --font: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --shadow: 0 4px 16px rgba(15, 23, 42, 0.05);
+  --shadow-md: 0 8px 28px rgba(15, 23, 42, 0.07);
+  --shadow-lg: 0 16px 40px rgba(15, 23, 42, 0.1);
+  --shadow-btn: 0 6px 16px rgba(15, 23, 42, 0.08);
+  --font: "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 * {
@@ -27,6 +43,17 @@ body {
   color: var(--text);
   background: var(--bg);
   line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body.admin-body {
+  background:
+    radial-gradient(900px 420px at 8% -8%, var(--bg-mesh-a), transparent 55%),
+    radial-gradient(700px 380px at 92% 0%, var(--bg-mesh-b), transparent 50%),
+    radial-gradient(640px 360px at 70% 100%, var(--bg-mesh-c), transparent 55%),
+    linear-gradient(180deg, #f4f6fb 0%, var(--bg) 40%, #e8ecf6 100%);
+  min-height: 100vh;
 }
 
 a {
@@ -1029,11 +1056,18 @@ button.btn {
 .btn-ripple {
   position: absolute;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.5);
   transform: scale(0);
   animation: adminBtnRipple 0.55s ease-out forwards;
   pointer-events: none;
-  z-index: 1;
+  z-index: 2;
+}
+
+.btn-secondary .btn-ripple,
+.btn-soft .btn-ripple,
+.btn-ghost .btn-ripple,
+.btn-danger-soft .btn-ripple {
+  background: rgba(79, 70, 229, 0.18);
 }
 
 @keyframes adminBtnRipple {
@@ -1862,4 +1896,617 @@ table td .btn + .btn,
   .stats-vue {
     grid-template-columns: 1fr;
   }
+}
+
+/* =========================================================
+   UI v2 · 按钮 / 侧栏 / 面板 / 表单 二次美化
+   ========================================================= */
+
+/* —— 按钮体系 —— */
+.btn,
+a.btn,
+button.btn {
+  border-radius: 11px;
+  padding: 10px 18px;
+  font-size: 0.88rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  gap: 7px;
+  box-shadow: var(--shadow-btn);
+  transition:
+    transform 0.18s var(--ease-out),
+    box-shadow 0.18s var(--ease-out),
+    background 0.18s ease,
+    border-color 0.18s ease,
+    color 0.15s ease,
+    filter 0.15s ease;
+}
+
+/* 高光用 inset 阴影，避免 ::after 盖住文字 */
+
+.btn:hover {
+  transform: translateY(-2px);
+  filter: none;
+}
+
+.btn:active {
+  transform: translateY(0) scale(0.98);
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #7c83ff 0%, #6366f1 38%, #4f46e5 72%, #4338ca 100%);
+  color: #fff;
+  border: 1px solid rgba(67, 56, 202, 0.35);
+  box-shadow:
+    0 10px 24px var(--primary-glow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.1);
+}
+
+.btn-primary:hover {
+  background: linear-gradient(135deg, #8b91ff 0%, #6d72f5 40%, #4f46e5 75%, #3730a3 100%);
+  color: #fff;
+  box-shadow:
+    0 14px 32px rgba(79, 70, 229, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.4),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.08);
+}
+
+.btn-secondary {
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  border: 1px solid var(--border);
+  color: #1e293b;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.05), 0 1px 0 #fff inset;
+}
+
+.btn-secondary:hover {
+  border-color: #a5b4fc;
+  background: linear-gradient(180deg, #ffffff 0%, #eef2ff 100%);
+  color: var(--primary);
+  box-shadow: 0 8px 20px rgba(79, 70, 229, 0.12);
+}
+
+.btn-soft {
+  background: linear-gradient(180deg, #f5f3ff 0%, var(--primary-soft) 100%);
+  color: var(--primary);
+  border: 1px solid rgba(79, 70, 229, 0.16);
+  box-shadow: 0 2px 8px rgba(79, 70, 229, 0.06);
+}
+
+.btn-soft:hover {
+  background: linear-gradient(180deg, #eef2ff 0%, #e0e7ff 100%);
+  color: var(--primary-hover);
+  border-color: rgba(79, 70, 229, 0.28);
+  box-shadow: 0 8px 18px rgba(79, 70, 229, 0.14);
+}
+
+.btn-ghost {
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  box-shadow: none;
+  backdrop-filter: blur(6px);
+}
+
+.btn-ghost:hover {
+  background: #fff;
+  color: var(--text);
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow);
+}
+
+.btn-danger {
+  background: linear-gradient(135deg, #f87171 0%, #ef4444 45%, #dc2626 100%);
+  border: 1px solid rgba(185, 28, 28, 0.35);
+  color: #fff;
+  box-shadow: 0 10px 22px rgba(220, 38, 38, 0.28), 0 1px 0 rgba(255, 255, 255, 0.2) inset;
+}
+
+.btn-danger:hover {
+  color: #fff;
+  filter: brightness(1.04);
+  box-shadow: 0 14px 28px rgba(220, 38, 38, 0.35);
+}
+
+.btn-danger-soft {
+  background: linear-gradient(180deg, #fff5f5 0%, var(--danger-soft) 100%);
+  color: var(--danger);
+  border: 1px solid rgba(220, 38, 38, 0.16);
+  box-shadow: none;
+}
+
+.btn-danger-soft:hover {
+  background: #fee2e2;
+  color: #b91c1c;
+  border-color: rgba(220, 38, 38, 0.28);
+  box-shadow: 0 6px 16px rgba(220, 38, 38, 0.12);
+}
+
+.btn-sm {
+  padding: 7px 12px;
+  font-size: 0.8rem;
+  border-radius: 9px;
+  font-weight: 650;
+}
+
+.btn-lg {
+  padding: 13px 24px;
+  font-size: 0.98rem;
+  border-radius: 13px;
+}
+
+.btn-ico {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.15em;
+  height: 1.15em;
+  opacity: 0.95;
+}
+
+.btn-row {
+  gap: 10px;
+}
+
+table .btn,
+.table .btn,
+.actions .btn {
+  padding: 6px 11px;
+  font-size: 0.78rem;
+  border-radius: 8px;
+  font-weight: 650;
+  box-shadow: none;
+}
+
+table .btn-primary,
+.actions .btn-primary {
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.22);
+}
+
+/* —— 侧栏 —— */
+.admin-sidebar {
+  background:
+    radial-gradient(420px 220px at 20% -10%, rgba(99, 102, 241, 0.35), transparent 60%),
+    radial-gradient(360px 200px at 100% 80%, rgba(13, 148, 136, 0.18), transparent 55%),
+    linear-gradient(180deg, #0f172a 0%, var(--sidebar) 55%, #080d16 100%);
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: 4px 0 24px rgba(0, 0, 0, 0.12);
+}
+
+.brand-mark {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #c084fc, #6366f1 50%, #22d3ee);
+  box-shadow: 0 10px 24px rgba(99, 102, 241, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.15) inset;
+  font-size: 1.05rem;
+}
+
+.admin-brand strong {
+  font-weight: 800;
+  letter-spacing: 0.01em;
+}
+
+.admin-nav {
+  gap: 5px;
+  overflow-y: auto;
+  padding-right: 2px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+}
+
+.admin-nav a.admin-nav-item,
+.admin-nav a {
+  border-radius: 12px;
+  padding: 9px 11px;
+  border: 1px solid transparent;
+}
+
+.admin-nav a:hover {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.06);
+  transform: translateX(3px);
+}
+
+.admin-nav a.active {
+  background: linear-gradient(90deg, rgba(99, 102, 241, 0.38), rgba(99, 102, 241, 0.14));
+  border-color: rgba(129, 140, 248, 0.28);
+  box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.12), 0 8px 20px rgba(0, 0, 0, 0.15);
+  color: #fff;
+}
+
+.admin-nav-ico {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.07);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.06) inset;
+}
+
+.admin-nav a.active .admin-nav-ico {
+  background: linear-gradient(135deg, rgba(129, 140, 248, 0.55), rgba(99, 102, 241, 0.35));
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.35);
+}
+
+.admin-sidebar-footer .btn-danger-soft {
+  background: rgba(248, 113, 113, 0.12);
+  border-color: rgba(248, 113, 113, 0.22);
+  color: #fecaca;
+}
+
+.admin-sidebar-footer .btn-danger-soft:hover {
+  background: rgba(248, 113, 113, 0.22);
+  color: #fff;
+  border-color: rgba(248, 113, 113, 0.4);
+}
+
+/* —— 顶栏 —— */
+.admin-topbar {
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(12px) saturate(1.2);
+  -webkit-backdrop-filter: blur(12px) saturate(1.2);
+  border-bottom: 1px solid rgba(226, 232, 240, 0.9);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.8) inset, 0 8px 24px rgba(15, 23, 42, 0.03);
+  padding: 12px 22px 12px 18px;
+}
+
+.admin-topbar-kicker {
+  background: linear-gradient(90deg, #6366f1, #0d9488);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  font-weight: 800;
+}
+
+.admin-topbar h1 {
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.admin-user-chip {
+  background: linear-gradient(180deg, #fff, #f8fafc);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.05);
+  border-color: rgba(226, 232, 240, 0.95);
+  padding: 4px 12px 4px 4px;
+}
+
+.admin-user-avatar {
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.35);
+}
+
+.admin-nav-toggle {
+  border-radius: 11px;
+  border-color: var(--border);
+  background: linear-gradient(180deg, #fff, #f8fafc);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.05);
+}
+
+.admin-nav-toggle:hover {
+  border-color: #a5b4fc;
+  color: var(--primary);
+  box-shadow: 0 6px 16px rgba(79, 70, 229, 0.12);
+}
+
+/* —— 面板 / 内容区 —— */
+.admin-content {
+  padding: 26px 30px 48px;
+}
+
+.panel {
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  box-shadow: var(--shadow-md), 0 1px 0 rgba(255, 255, 255, 0.8) inset;
+  padding: 22px 24px;
+  margin-bottom: 18px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), #fff);
+}
+
+.panel:hover {
+  box-shadow: var(--shadow-lg), 0 1px 0 rgba(255, 255, 255, 0.9) inset;
+  border-color: rgba(203, 213, 225, 0.95);
+}
+
+.panel-accent {
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(500px 180px at 100% 0%, rgba(99, 102, 241, 0.12), transparent 60%),
+    radial-gradient(400px 160px at 0% 100%, rgba(14, 165, 233, 0.08), transparent 55%),
+    linear-gradient(180deg, #fafafe, #fff);
+  border-color: rgba(99, 102, 241, 0.2);
+}
+
+.panel-accent::after {
+  content: "";
+  position: absolute;
+  top: -40%;
+  right: -8%;
+  width: 220px;
+  height: 220px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(99, 102, 241, 0.12), transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.panel-accent > * {
+  position: relative;
+  z-index: 1;
+}
+
+.panel-soft {
+  background: linear-gradient(180deg, #f8faff 0%, #fff 70%);
+}
+
+.panel-head h2,
+.panel > h2 {
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: #0f172a;
+}
+
+.panel-head .muted {
+  line-height: 1.5;
+}
+
+/* —— 表单 —— */
+.form-group label {
+  font-size: 0.84rem;
+  font-weight: 700;
+  color: #334155;
+  letter-spacing: 0.01em;
+}
+
+input[type="text"],
+input[type="password"],
+input[type="url"],
+input[type="email"],
+input[type="number"],
+input[type="date"],
+select,
+textarea {
+  border-radius: 11px;
+  padding: 11px 13px;
+  border: 1px solid var(--border);
+  background: linear-gradient(180deg, #fff, #fafbff);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+}
+
+input:hover,
+select:hover,
+textarea:hover {
+  border-color: #cbd5e1;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: #818cf8;
+  background: #fff;
+  box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.14), 0 2px 6px rgba(15, 23, 42, 0.04);
+}
+
+.form-actions {
+  padding-top: 6px;
+  gap: 12px;
+}
+
+.switch-bar {
+  background: linear-gradient(180deg, #f8faff, #f1f5f9);
+  border-radius: 12px;
+  border-color: rgba(226, 232, 240, 0.95);
+}
+
+/* —— 表格 —— */
+.table-wrap {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+  background: #fff;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.8) inset;
+}
+
+.table-wrap table.data-table {
+  margin: 0;
+}
+
+table.data-table th {
+  background: linear-gradient(180deg, #f8fafc, #f1f5f9);
+  color: #475569;
+  font-weight: 700;
+  font-size: 0.78rem;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--border);
+}
+
+table.data-table td {
+  border-bottom: 1px solid #f1f5f9;
+}
+
+table.data-table tr:last-child td {
+  border-bottom: 0;
+}
+
+table.data-table tr:hover td {
+  background: linear-gradient(90deg, #fafafe, #f8fafc);
+}
+
+/* —— 标签 / 筛选 —— */
+.tag {
+  border-radius: 999px;
+  padding: 3px 10px;
+  background: linear-gradient(180deg, #eef2ff, #e0e7ff);
+  color: #4338ca;
+  font-weight: 700;
+  border: 1px solid rgba(99, 102, 241, 0.12);
+  letter-spacing: 0.01em;
+}
+
+.filter-tabs a,
+.filter-tabs .btn {
+  border-radius: 999px;
+}
+
+/* —— Alert —— */
+.alert {
+  border-radius: 14px;
+  padding: 13px 16px;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.05);
+  align-items: center;
+}
+
+.alert-success {
+  background: linear-gradient(90deg, #ecfdf5, #f0fdf4);
+  border: 1px solid #a7f3d0;
+  color: #047857;
+}
+
+.alert-error {
+  background: linear-gradient(90deg, #fef2f2, #fff1f2);
+  border: 1px solid #fecaca;
+  color: #b91c1c;
+}
+
+.alert-ico {
+  width: 24px;
+  height: 24px;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.08);
+}
+
+/* —— 概览卡片 —— */
+.stat-card {
+  border-radius: var(--radius-lg);
+  background: linear-gradient(165deg, #fff 0%, #fafafe 100%);
+  box-shadow: var(--shadow-md);
+  border: 1px solid rgba(226, 232, 240, 0.95);
+}
+
+.stat-card:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-lg);
+}
+
+.stat-icon {
+  border-radius: 11px;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
+}
+
+.dash-meta-card {
+  border-radius: 16px;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.9), rgba(238, 242, 255, 0.75));
+  box-shadow: 0 8px 24px rgba(79, 70, 229, 0.1);
+  border: 1px solid rgba(99, 102, 241, 0.16);
+}
+
+.dash-quick .btn {
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: 0.82rem;
+}
+
+/* —— 模态 —— */
+.modal {
+  border-radius: var(--radius-xl);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  box-shadow: 0 28px 64px rgba(15, 23, 42, 0.22);
+}
+
+.modal-backdrop {
+  background: rgba(15, 23, 42, 0.48);
+  backdrop-filter: blur(4px);
+}
+
+/* —— 侧栏退出按钮 —— */
+.admin-sidebar-footer .btn {
+  border-radius: 11px;
+  font-weight: 700;
+}
+
+/* —— 代码块 —— */
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.84em;
+  background: #f1f5f9;
+  color: #4338ca;
+  padding: 2px 6px;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+}
+
+/* —— 日志级别等 pill —— */
+.log-level {
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+@media (max-width: 900px) {
+  .admin-content {
+    padding: 16px 14px 32px;
+  }
+
+  .panel {
+    padding: 16px 16px;
+    border-radius: 14px;
+  }
+
+  .btn,
+  a.btn,
+  button.btn {
+    padding: 9px 14px;
+  }
+}
+
+/* —— 登录页微调 —— */
+.login-page {
+  background:
+    radial-gradient(900px 480px at 12% -10%, rgba(99, 102, 241, 0.22), transparent 55%),
+    radial-gradient(800px 420px at 90% 10%, rgba(14, 165, 233, 0.16), transparent 50%),
+    radial-gradient(700px 400px at 50% 100%, rgba(168, 85, 247, 0.12), transparent 55%),
+    linear-gradient(165deg, #0f172a 0%, #1e1b4b 48%, #0f172a 100%);
+}
+
+.login-card {
+  border-radius: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow:
+    0 28px 64px rgba(0, 0, 0, 0.35),
+    0 1px 0 rgba(255, 255, 255, 0.12) inset;
+  backdrop-filter: blur(16px);
+}
+
+.login-form .btn-primary,
+.login-card .btn-primary {
+  width: 100%;
+  justify-content: center;
+  padding: 12px 18px;
+  font-size: 0.95rem;
+  border-radius: 12px;
+  margin-top: 4px;
+}
+
+.login-brand-mark {
+  box-shadow: 0 12px 28px rgba(99, 102, 241, 0.45);
+}
+
+/* —— 工具栏 / 操作列对齐 —— */
+.toolbar {
+  gap: 10px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+/* 主操作区底部 sticky 感（长表单） */
+.form-actions.sticky-actions {
+  position: sticky;
+  bottom: 0;
+  margin: 16px -8px -8px;
+  padding: 14px 8px 8px;
+  background: linear-gradient(180deg, transparent, rgba(255, 255, 255, 0.96) 28%);
+  z-index: 5;
 }

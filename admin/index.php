@@ -62,16 +62,18 @@ admin_layout_start('概览', 'dashboard');
         </div>
     </div>
     <div class="btn-row dash-quick">
-        <a class="btn btn-secondary" href="engines.php">搜索引擎</a>
-        <a class="btn btn-secondary" href="shortcuts.php">快捷入口</a>
-        <a class="btn btn-secondary" href="sites.php">自营站点</a>
-        <a class="btn btn-secondary" href="projects.php">开源项目</a>
-        <a class="btn btn-secondary" href="tools.php">实用工具</a>
-        <a class="btn btn-secondary" href="links.php">友情链接</a>
-        <a class="btn btn-secondary" href="messages.php">留言管理</a>
-        <a class="btn btn-secondary" href="smtp.php">SMTP</a>
-        <a class="btn btn-secondary" href="ai.php">AI 配置</a>
-        <a class="btn btn-ghost" href="password.php">修改密码</a>
+        <a class="btn btn-secondary" href="engines.php"><span class="btn-ico" aria-hidden="true">⌕</span> 搜索引擎</a>
+        <a class="btn btn-secondary" href="shortcuts.php"><span class="btn-ico" aria-hidden="true">⚡</span> 快捷入口</a>
+        <a class="btn btn-secondary" href="sites.php"><span class="btn-ico" aria-hidden="true">◎</span> 自营站点</a>
+        <a class="btn btn-secondary" href="projects.php"><span class="btn-ico" aria-hidden="true">&lt;/&gt;</span> 开源项目</a>
+        <a class="btn btn-secondary" href="tools.php"><span class="btn-ico" aria-hidden="true">⚒</span> 实用工具</a>
+        <a class="btn btn-secondary" href="links.php"><span class="btn-ico" aria-hidden="true">⛓</span> 友情链接</a>
+        <a class="btn btn-soft" href="messages.php"><span class="btn-ico" aria-hidden="true">💬</span> 留言管理</a>
+        <a class="btn btn-soft" href="smtp.php"><span class="btn-ico" aria-hidden="true">✉</span> SMTP</a>
+        <a class="btn btn-soft" href="ai.php"><span class="btn-ico" aria-hidden="true">✦</span> AI 配置</a>
+        <a class="btn btn-ghost" href="password.php"><span class="btn-ico" aria-hidden="true">🔒</span> 修改密码</a>
+        <a class="btn btn-ghost" href="logs.php"><span class="btn-ico" aria-hidden="true">☰</span> 操作日志</a>
+        <a class="btn btn-ghost" href="update.php"><span class="btn-ico" aria-hidden="true">↻</span> 系统更新</a>
     </div>
 </div>
 

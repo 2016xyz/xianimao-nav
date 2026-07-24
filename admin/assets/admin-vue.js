@@ -143,21 +143,23 @@
           if (window.getComputedStyle(btn).position === 'static') {
             btn.style.position = 'relative';
           }
+          // 涟漪层始终在最上层
           btn.addEventListener('click', function (ev) {
-            if (btn.disabled) return;
+            if (btn.disabled || btn.classList.contains('is-disabled')) return;
             var rect = btn.getBoundingClientRect();
             var ripple = document.createElement('span');
             ripple.className = 'btn-ripple';
-            var size = Math.max(rect.width, rect.height) * 1.2;
+            var size = Math.max(rect.width, rect.height) * 1.35;
             var x = (ev.clientX || rect.left + rect.width / 2) - rect.left - size / 2;
             var y = (ev.clientY || rect.top + rect.height / 2) - rect.top - size / 2;
             ripple.style.width = ripple.style.height = size + 'px';
             ripple.style.left = x + 'px';
             ripple.style.top = y + 'px';
+            ripple.style.zIndex = '2';
             btn.appendChild(ripple);
             setTimeout(function () {
               if (ripple.parentNode) ripple.parentNode.removeChild(ripple);
-            }, 560);
+            }, 580);
           });
         });
       },
