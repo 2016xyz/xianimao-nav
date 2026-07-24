@@ -48,11 +48,29 @@
 
 ## 2. 密钥与 .gitignore
 
-以下路径默认忽略，请勿提交：
+### 2.1 运行时密钥存数据库
+
+安装完成后，以下凭证**主存储**在 MySQL `settings` 表（`secret_*` JSON 块 + 兼容分散键），**新写入不再落盘**到 `config/*.json`：
+
+| 类型 | settings 键 |
+|------|-------------|
+| SMTP | `secret_smtp`、`smtp_pass` 等 |
+| AI | `secret_ai` |
+| Linux.do OAuth App | `secret_linuxdo_oauth_app` |
+| Linux.do 热榜 Cookie/API | `secret_linuxdo_auth`、`linuxdo_cookie` 等 |
+| 吾爱破解 Cookie | `secret_52pojie_auth`、`52pojie_cookie` 等 |
+| 管理员 | 表 `admins.password_hash` |
+
+旧版 `config/smtp.json`、`config/ai_config.json`、`config/*_auth.json` 等若存在，会在读取时**一次性迁移**到 DB。  
+`config/database.php` 仍为连接库所需本地文件（安装写入）。
+
+### 2.2 仍忽略的路径
+
+请勿提交：
 
 - `config/database.php`、`config/install.lock`  
-- `config/smtp.json`、`config/ai_config.json`  
-- `config/*_auth.json`、`config/linuxdo_oauth_app.json`  
+- `config/smtp.json`、`config/ai_config.json`（遗留）  
+- `config/*_auth.json`、`config/linuxdo_oauth_app.json`（遗留）  
 - `config/auth.php`、`config/site_extra.json`、`config/hot_config.json`  
 - `data/messages.json`、`data/cache/*`、`.env`  
 
@@ -65,7 +83,7 @@
 - [ ] 安装完成后移除或限制 `install.php`  
 - [ ] 限制 `config/`、`data/` 的 Web 直接访问（Nginx deny）  
 - [ ] SMTP 使用专用邮箱与应用专用密码  
-- [ ] 定期备份数据库与密钥文件  
+- [ ] **定期备份数据库**（含 settings 密钥）；遗留密钥文件迁移后可删除  
 - [ ] 生产关闭 `display_errors`，日志写入安全路径  
 - [ ] 关注依赖与 PHP 安全更新  
 

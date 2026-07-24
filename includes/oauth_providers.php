@@ -126,17 +126,31 @@ function oauth_linuxdo_app_file()
  */
 function oauth_linuxdo_app_config()
 {
-    $file = oauth_linuxdo_app_file();
-    $fromFile = [];
-    if (is_file($file) && is_readable($file)) {
-        $j = json_decode((string) file_get_contents($file), true);
-        if (is_array($j)) {
-            $fromFile = $j;
-        }
+    $defaults = ['client_id' => '', 'client_secret' => '', 'redirect_uri' => '', 'updated_at' => ''];
+
+    $blob = secret_blob_get('linuxdo_oauth_app');
+    if (!is_array($blob) || $blob === []) {
+        $blob = secret_blob_migrate_from_file('linuxdo_oauth_app', oauth_linuxdo_app_file());
     }
-    $clientId = trim((string) ($fromFile['client_id'] ?? hot_setting_get('linuxdo_oauth_client_id', '')));
-    $clientSecret = trim((string) ($fromFile['client_secret'] ?? hot_setting_get('linuxdo_oauth_client_secret', '')));
-    $redirect = trim((string) ($fromFile['redirect_uri'] ?? hot_setting_get('linuxdo_oauth_redirect_uri', '')));
+    if (is_array($blob) && $blob !== []) {
+        $clientId = trim((string) ($blob['client_id'] ?? ''));
+        $clientSecret = trim((string) ($blob['client_secret'] ?? ''));
+        $redirect = trim((string) ($blob['redirect_uri'] ?? ''));
+        if ($redirect === '') {
+            $redirect = oauth_linuxdo_callback_url();
+        }
+        return array_merge($defaults, [
+            'client_id' => $clientId,
+            'client_secret' => $clientSecret,
+            'redirect_uri' => $redirect,
+            'updated_at' => (string) ($blob['updated_at'] ?? ''),
+        ]);
+    }
+
+    // 兼容历史分散 settings / 文件
+    $clientId = trim((string) hot_setting_get('linuxdo_oauth_client_id', ''));
+    $clientSecret = trim((string) hot_setting_get('linuxdo_oauth_client_secret', ''));
+    $redirect = trim((string) hot_setting_get('linuxdo_oauth_redirect_uri', ''));
     if ($redirect === '') {
         $redirect = oauth_linuxdo_callback_url();
     }
@@ -144,7 +158,7 @@ function oauth_linuxdo_app_config()
         'client_id' => $clientId,
         'client_secret' => $clientSecret,
         'redirect_uri' => $redirect,
-        'updated_at' => (string) ($fromFile['updated_at'] ?? hot_setting_get('linuxdo_oauth_app_updated_at', '')),
+        'updated_at' => (string) hot_setting_get('linuxdo_oauth_app_updated_at', ''),
     ];
 }
 
@@ -172,20 +186,14 @@ function oauth_linuxdo_save_app(array $input)
         'redirect_uri' => $redirect,
         'updated_at' => date('Y-m-d H:i:s'),
     ];
-    $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) . "\n";
-    $dir = dirname(oauth_linuxdo_app_file());
-    if (!is_dir($dir)) {
-        @mkdir($dir, 0755, true);
-    }
-    $okFile = @file_put_contents(oauth_linuxdo_app_file(), $json, LOCK_EX) !== false;
-    if ($okFile) {
-        @chmod(oauth_linuxdo_app_file(), 0600);
-    }
-    hot_setting_set('linuxdo_oauth_client_id', $clientId);
-    hot_setting_set('linuxdo_oauth_client_secret', $clientSecret);
-    hot_setting_set('linuxdo_oauth_redirect_uri', $redirect);
-    hot_setting_set('linuxdo_oauth_app_updated_at', $payload['updated_at']);
-    return $okFile;
+
+    // 主存储：数据库，不再写 config/linuxdo_oauth_app.json
+    $ok = secret_blob_set('linuxdo_oauth_app', $payload);
+    $ok = hot_setting_set('linuxdo_oauth_client_id', $clientId) && $ok;
+    $ok = hot_setting_set('linuxdo_oauth_client_secret', $clientSecret) && $ok;
+    $ok = hot_setting_set('linuxdo_oauth_redirect_uri', $redirect) && $ok;
+    $ok = hot_setting_set('linuxdo_oauth_app_updated_at', $payload['updated_at']) && $ok;
+    return $ok;
 }
 
 function oauth_linuxdo_app_ready()
@@ -487,13 +495,12 @@ function hot_52pojie_save_credentials(array $input)
         ]);
     }
 
-    $okFile = hot_52pojie_write_files($payload);
     $okDb = hot_52pojie_write_db($payload);
     $f = HOT_CACHE_DIR . '/52pojie.json';
     if (is_file($f)) {
         @unlink($f);
     }
-    return $okFile || $okDb;
+    return $okDb;
 }
 
 /**

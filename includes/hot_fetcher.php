@@ -242,26 +242,34 @@ function hot_board_sources()
 }
 
 /**
- * settings 读写（DB 优先，文件回退）
+ * settings 读写：DB 主存储；旧 hot_config.json 仅只读回退（非密钥）
  */
 function hot_setting_get($key, $default = '')
 {
-    try {
-        if (function_exists('db')) {
+    if (function_exists('setting_get')) {
+        // setting_get 命中 DB 会返回值；未命中返回 default。
+        // 用独特哨兵区分「未设置」与「空字符串」。
+        $sentinel = "\0__hot_missing__\0";
+        $v = setting_get($key, $sentinel);
+        if ($v !== $sentinel) {
+            return $v;
+        }
+    } else {
+        try {
             $stmt = db()->prepare('SELECT svalue FROM settings WHERE skey = ? LIMIT 1');
-            $stmt->execute([$key]);
+            $stmt->execute([(string) $key]);
             $row = $stmt->fetch();
             if ($row && array_key_exists('svalue', $row)) {
                 return $row['svalue'];
             }
+        } catch (Throwable $e) {
+            // fallthrough
         }
-    } catch (Throwable $e) {
-        // fallthrough
     }
 
     $file = ROOT_PATH . '/config/hot_config.json';
     if (is_file($file)) {
-        $json = json_decode(file_get_contents($file), true);
+        $json = json_decode((string) file_get_contents($file), true);
         if (is_array($json) && array_key_exists($key, $json)) {
             return $json[$key];
         }
@@ -271,36 +279,15 @@ function hot_setting_get($key, $default = '')
 
 function hot_setting_set($key, $value)
 {
-    $okDb = false;
+    if (function_exists('setting_set')) {
+        return setting_set($key, $value);
+    }
     try {
-        if (function_exists('db')) {
-            $stmt = db()->prepare('INSERT INTO settings (skey, svalue) VALUES (?, ?) ON DUPLICATE KEY UPDATE svalue = VALUES(svalue)');
-            $okDb = $stmt->execute([$key, $value]);
-        }
+        $stmt = db()->prepare('INSERT INTO settings (skey, svalue) VALUES (?, ?) ON DUPLICATE KEY UPDATE svalue = VALUES(svalue)');
+        return $stmt->execute([(string) $key, (string) $value]);
     } catch (Throwable $e) {
-        $okDb = false;
+        return false;
     }
-
-    $file = ROOT_PATH . '/config/hot_config.json';
-    $json = [];
-    if (is_file($file)) {
-        $tmp = json_decode(file_get_contents($file), true);
-        if (is_array($tmp)) {
-            $json = $tmp;
-        }
-    }
-    $json[$key] = $value;
-    $dir = dirname($file);
-    if (!is_dir($dir)) {
-        @mkdir($dir, 0755, true);
-    }
-    $okFile = file_put_contents(
-        $file,
-        json_encode($json, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) . "\n",
-        LOCK_EX
-    ) !== false;
-
-    return $okDb || $okFile;
 }
 
 /**
@@ -405,63 +392,70 @@ function hot_linuxdo_pick_best(array $candidates)
 
 /**
  * Linux.do / Discourse 登录凭证（后台配置，仅服务端使用）
- * 持久化：config 文件 + data 备份 + 数据库 settings
+ * 主存储：数据库 settings / secret_linuxdo_auth；旧 JSON 仅迁移读取
  * @return array{cookie:string,api_key:string,api_username:string,mode:string,updated_at:string}
  */
 function hot_linuxdo_credentials()
 {
     $candidates = [];
-    $main = hot_linuxdo_read_file(hot_linuxdo_secret_file());
-    if ($main) {
-        $candidates[] = $main;
+
+    // DB secret 块
+    if (function_exists('secret_blob_get')) {
+        $blob = secret_blob_get('linuxdo_auth');
+        if (is_array($blob) && $blob !== []) {
+            $candidates[] = hot_linuxdo_normalize_cred($blob);
+        }
     }
-    $bak = hot_linuxdo_read_file(hot_linuxdo_secret_backup_file());
-    if ($bak) {
-        $candidates[] = $bak;
-    }
+
     $db = hot_linuxdo_read_db();
     if ($db) {
         $candidates[] = $db;
     }
+
+    // 旧文件只读迁移（不回写磁盘）
+    foreach ([hot_linuxdo_secret_file(), hot_linuxdo_secret_backup_file()] as $f) {
+        $c = hot_linuxdo_read_file($f);
+        if ($c) {
+            $candidates[] = $c;
+        }
+    }
+
     $cred = hot_linuxdo_pick_best($candidates);
 
-    // 若主文件缺失/为空但其它源有密钥，回写主文件，保证重启后仍可用
-    if (($cred['cookie'] !== '' || $cred['api_key'] !== '') && (!$main || ($main['cookie'] === '' && $main['api_key'] === ''))) {
-        hot_linuxdo_write_files($cred);
+    // 若 DB 无完整密钥但其它源有，写回数据库
+    if (($cred['cookie'] !== '' || $cred['api_key'] !== '')) {
+        $dbEmpty = !$db || ($db['cookie'] === '' && $db['api_key'] === '');
+        $blobEmpty = true;
+        if (function_exists('secret_blob_get')) {
+            $b = secret_blob_get('linuxdo_auth');
+            $blobEmpty = !is_array($b) || (($b['cookie'] ?? '') === '' && ($b['api_key'] ?? '') === '');
+        }
+        if ($dbEmpty || $blobEmpty) {
+            hot_linuxdo_write_db($cred);
+        }
     }
 
     return $cred;
 }
 
 /**
- * 写入文件双副本（主 + 备份）
+ * @deprecated 密钥不再落盘；保留空实现兼容旧调用
  */
 function hot_linuxdo_write_files(array $payload)
 {
-    $payload = hot_linuxdo_normalize_cred($payload);
-    $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) . "\n";
-    $ok = false;
-    foreach ([hot_linuxdo_secret_file(), hot_linuxdo_secret_backup_file()] as $file) {
-        $dir = dirname($file);
-        if (!is_dir($dir)) {
-            @mkdir($dir, 0755, true);
-        }
-        if (@file_put_contents($file, $json, LOCK_EX) !== false) {
-            $ok = true;
-            // 尽量限制权限（Windows 上可能无效）
-            @chmod($file, 0600);
-        }
-    }
-    return $ok;
+    return hot_linuxdo_write_db($payload);
 }
 
 /**
- * 写入数据库副本（真正持久化，换机器/重装 PHP 仍可从 DB 恢复）
+ * 写入数据库（主存储）
  */
 function hot_linuxdo_write_db(array $payload)
 {
     $payload = hot_linuxdo_normalize_cred($payload);
     $ok = true;
+    if (function_exists('secret_blob_set')) {
+        $ok = secret_blob_set('linuxdo_auth', $payload) && $ok;
+    }
     $ok = hot_setting_set('linuxdo_cookie', $payload['cookie']) && $ok;
     $ok = hot_setting_set('linuxdo_api_key', $payload['api_key']) && $ok;
     $ok = hot_setting_set('linuxdo_api_username', $payload['api_username']) && $ok;
@@ -548,7 +542,6 @@ function hot_linuxdo_save_credentials(array $input)
         'updated_at' => date('Y-m-d H:i:s'),
     ]);
 
-    $okFile = hot_linuxdo_write_files($payload);
     $okDb = hot_linuxdo_write_db($payload);
 
     // 清缓存，使登录态立刻参与抓取
@@ -556,7 +549,7 @@ function hot_linuxdo_save_credentials(array $input)
     if (is_file($f)) {
         @unlink($f);
     }
-    return $okFile || $okDb;
+    return $okDb;
 }
 
 /**

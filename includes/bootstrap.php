@@ -770,6 +770,127 @@ function update_admin_password($username, $newHash)
 }
 
 /**
+ * 运行时配置 / 密钥：统一读写 settings 表（DB 主存储）
+ * 旧版 JSON 文件仅作一次性迁移回退，新写入不再落盘密钥。
+ *
+ * @return array 请求内缓存（引用）
+ */
+function &setting_request_cache()
+{
+    static $cache = [];
+    return $cache;
+}
+
+function setting_get($key, $default = '')
+{
+    $key = (string) $key;
+    if ($key === '') {
+        return $default;
+    }
+    $cache = &setting_request_cache();
+    if (array_key_exists($key, $cache)) {
+        return $cache[$key];
+    }
+    try {
+        $stmt = db()->prepare('SELECT svalue FROM settings WHERE skey = ? LIMIT 1');
+        $stmt->execute([$key]);
+        $row = $stmt->fetch();
+        if ($row && array_key_exists('svalue', $row)) {
+            $cache[$key] = $row['svalue'];
+            return $cache[$key];
+        }
+    } catch (Throwable $e) {
+        // 安装前或表不存在
+    }
+    return $default;
+}
+
+function setting_set($key, $value)
+{
+    $key = (string) $key;
+    if ($key === '' || strlen($key) > 64) {
+        return false;
+    }
+    $value = (string) $value;
+    try {
+        $stmt = db()->prepare('INSERT INTO settings (skey, svalue) VALUES (?, ?) ON DUPLICATE KEY UPDATE svalue = VALUES(svalue)');
+        $ok = $stmt->execute([$key, $value]);
+        if ($ok) {
+            $cache = &setting_request_cache();
+            $cache[$key] = $value;
+        }
+        return $ok;
+    } catch (Throwable $e) {
+        return false;
+    }
+}
+
+function setting_bool($key, $default = false)
+{
+    $v = setting_get($key, $default ? '1' : '0');
+    return $v === '1' || $v === 1 || $v === true || $v === 'true' || $v === 'yes';
+}
+
+/**
+ * 密钥 JSON 块：DB 键 secret_*，文件仅迁移
+ *
+ * @return array|null 解析后的数组；无数据 null
+ */
+function secret_blob_get($name)
+{
+    $name = preg_replace('/[^a-z0-9_\-]/i', '', (string) $name);
+    if ($name === '') {
+        return null;
+    }
+    $raw = setting_get('secret_' . $name, '');
+    if ($raw !== '') {
+        $j = json_decode($raw, true);
+        if (is_array($j)) {
+            return $j;
+        }
+    }
+    return null;
+}
+
+/**
+ * @param array $data 将 JSON 编码写入 settings
+ */
+function secret_blob_set($name, array $data)
+{
+    $name = preg_replace('/[^a-z0-9_\-]/i', '', (string) $name);
+    if ($name === '') {
+        return false;
+    }
+    $json = json_encode($data, JSON_UNESCAPED_UNICODE);
+    if ($json === false) {
+        return false;
+    }
+    return setting_set('secret_' . $name, $json);
+}
+
+/**
+ * 从旧 JSON 文件迁移到 DB（仅当 DB 中尚无 secret 块时）
+ *
+ * @return array|null 迁移或读到的数据
+ */
+function secret_blob_migrate_from_file($name, $filePath)
+{
+    $existing = secret_blob_get($name);
+    if (is_array($existing) && $existing !== []) {
+        return $existing;
+    }
+    if (!is_file($filePath) || !is_readable($filePath)) {
+        return $existing;
+    }
+    $j = json_decode((string) file_get_contents($filePath), true);
+    if (!is_array($j) || $j === []) {
+        return $existing;
+    }
+    secret_blob_set($name, $j);
+    return $j;
+}
+
+/**
  * 读取热榜：真实接口 + 本地缓存
  */
 function load_hot_boards()

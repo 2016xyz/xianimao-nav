@@ -25,15 +25,16 @@ function ai_config_load()
         'models' => [],
         'updated_at' => '',
     ];
-    $file = ai_config_file();
-    if (!is_file($file)) {
-        return $defaults;
+
+    $blob = secret_blob_get('ai');
+    if (!is_array($blob) || $blob === []) {
+        $blob = secret_blob_migrate_from_file('ai', ai_config_file());
     }
-    $json = json_decode((string) file_get_contents($file), true);
-    if (!is_array($json)) {
-        return $defaults;
+    if (!is_array($blob)) {
+        $blob = [];
     }
-    $cfg = array_merge($defaults, $json);
+
+    $cfg = array_merge($defaults, $blob);
     $cfg['base_url'] = rtrim(trim((string) $cfg['base_url']), '/');
     $cfg['api_key'] = trim((string) $cfg['api_key']);
     $cfg['model'] = trim((string) $cfg['model']);
@@ -81,20 +82,8 @@ function ai_config_save(array $input)
         'updated_at' => date('Y-m-d H:i:s'),
     ];
 
-    $file = ai_config_file();
-    $dir = dirname($file);
-    if (!is_dir($dir)) {
-        @mkdir($dir, 0755, true);
-    }
-    $ok = @file_put_contents(
-        $file,
-        json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) . "\n",
-        LOCK_EX
-    ) !== false;
-    if ($ok) {
-        @chmod($file, 0600);
-    }
-    return $ok;
+    // 主存储：数据库 secret_ai，不再写入 config/ai_config.json
+    return secret_blob_set('ai', $payload);
 }
 
 function ai_is_ready()

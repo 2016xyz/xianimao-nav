@@ -35,52 +35,58 @@ function smtp_config()
         'updated_at' => '',
     ];
 
-    $fromFile = [];
-    $file = smtp_config_file();
-    if (is_file($file) && is_readable($file)) {
-        $j = json_decode((string) file_get_contents($file), true);
-        if (is_array($j)) {
-            $fromFile = $j;
-        }
+    // 1) 优先 secret_smtp JSON 块（DB）
+    $blob = secret_blob_get('smtp');
+    if (!is_array($blob) || $blob === []) {
+        // 2) 旧文件一次性迁移
+        $blob = secret_blob_migrate_from_file('smtp', smtp_config_file());
     }
 
     $cfg = $defaults;
-    foreach ($defaults as $k => $v) {
-        if (array_key_exists($k, $fromFile)) {
-            $cfg[$k] = $fromFile[$k];
-        } else {
-            $dbv = setting_get('smtp_' . $k, '');
-            if ($dbv !== '' || in_array($k, ['enabled', 'login_email_verify'], true)) {
-                if ($dbv !== '') {
-                    $cfg[$k] = $dbv;
-                } else {
-                    // 布尔开关从独立 key 读
-                    $alt = setting_get($k === 'login_email_verify' ? 'login_email_verify' : ('smtp_' . $k), '');
-                    if ($alt !== '') {
-                        $cfg[$k] = $alt;
-                    }
+    if (is_array($blob)) {
+        foreach ($defaults as $k => $v) {
+            if (array_key_exists($k, $blob)) {
+                $cfg[$k] = $blob[$k];
+            }
+        }
+    }
+
+    // 3) 兼容历史分散 key（smtp_host / smtp_pass …）
+    $map = [
+        'enabled' => 'smtp_enabled',
+        'host' => 'smtp_host',
+        'port' => 'smtp_port',
+        'encryption' => 'smtp_encryption',
+        'user' => 'smtp_user',
+        'pass' => 'smtp_pass',
+        'from_email' => 'smtp_from_email',
+        'from_name' => 'smtp_from_name',
+        'login_email_verify' => 'login_email_verify',
+        'login_email' => 'login_email',
+        'updated_at' => 'smtp_updated_at',
+    ];
+    foreach ($map as $field => $skey) {
+        $dbv = setting_get($skey, '');
+        if ($dbv !== '') {
+            // blob 已有非空则保留 blob；分散 key 补缺或补密码
+            if ($field === 'pass' || (string) $cfg[$field] === '' || (string) $cfg[$field] === (string) $defaults[$field]) {
+                if ($field === 'enabled' || $field === 'login_email_verify' || (string) $cfg[$field] === '') {
+                    $cfg[$field] = $dbv;
+                } elseif ($field === 'pass' && $cfg['pass'] === '') {
+                    $cfg['pass'] = $dbv;
+                } elseif ($field !== 'pass' && (string) $cfg[$field] === (string) $defaults[$field] && $dbv !== '') {
+                    $cfg[$field] = $dbv;
                 }
             }
         }
     }
-    // 兼容 settings 分散存储
-    $cfg['enabled'] = (string) (setting_get('smtp_enabled', $cfg['enabled']));
-    $cfg['host'] = (string) (setting_get('smtp_host', $cfg['host']) ?: $cfg['host']);
-    $cfg['port'] = (int) (setting_get('smtp_port', (string) $cfg['port']) ?: $cfg['port']);
-    $cfg['encryption'] = (string) (setting_get('smtp_encryption', $cfg['encryption']) ?: $cfg['encryption']);
-    $cfg['user'] = (string) (setting_get('smtp_user', $cfg['user']) ?: $cfg['user']);
-    $passDb = setting_get('smtp_pass', '');
-    if ($passDb !== '') {
-        $cfg['pass'] = $passDb;
-    }
-    $cfg['from_email'] = (string) (setting_get('smtp_from_email', $cfg['from_email']) ?: $cfg['from_email']);
-    $cfg['from_name'] = (string) (setting_get('smtp_from_name', $cfg['from_name']) ?: $cfg['from_name']);
-    $cfg['login_email_verify'] = setting_bool('login_email_verify', false) ? '1' : (string) (setting_get('login_email_verify', $cfg['login_email_verify']));
-    $cfg['login_email'] = (string) (setting_get('login_email', $cfg['login_email']) ?: $cfg['login_email']);
+
     $cfg['port'] = (int) $cfg['port'] > 0 ? (int) $cfg['port'] : 465;
     if (!in_array($cfg['encryption'], ['none', 'ssl', 'tls'], true)) {
         $cfg['encryption'] = 'ssl';
     }
+    $cfg['enabled'] = ((string) $cfg['enabled'] === '1' || $cfg['enabled'] === 1 || $cfg['enabled'] === true) ? '1' : '0';
+    $cfg['login_email_verify'] = ((string) $cfg['login_email_verify'] === '1' || $cfg['login_email_verify'] === 1) ? '1' : '0';
     return $cfg;
 }
 
@@ -110,16 +116,8 @@ function smtp_save_config(array $input)
         $cfg['port'] = 465;
     }
 
-    $json = json_encode($cfg, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) . "\n";
-    $dir = dirname(smtp_config_file());
-    if (!is_dir($dir)) {
-        @mkdir($dir, 0755, true);
-    }
-    $okFile = @file_put_contents(smtp_config_file(), $json, LOCK_EX) !== false;
-    if ($okFile) {
-        @chmod(smtp_config_file(), 0600);
-    }
-
+    // 主存储：数据库 secret_smtp + 兼容分散 key
+    $ok = secret_blob_set('smtp', $cfg);
     foreach ([
         'smtp_enabled' => $cfg['enabled'],
         'smtp_host' => $cfg['host'],
@@ -131,10 +129,13 @@ function smtp_save_config(array $input)
         'smtp_from_name' => $cfg['from_name'],
         'login_email_verify' => $cfg['login_email_verify'],
         'login_email' => $cfg['login_email'],
+        'smtp_updated_at' => $cfg['updated_at'],
     ] as $k => $v) {
-        setting_set($k, $v);
+        $ok = setting_set($k, $v) && $ok;
     }
-    return $okFile;
+
+    // 不再写入 config/smtp.json（避免密钥落盘）；若旧文件存在可保留只读
+    return $ok;
 }
 
 function smtp_is_ready()
