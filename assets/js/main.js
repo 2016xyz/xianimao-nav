@@ -1,4 +1,25 @@
 $(function () {
+    /* ===== 图片回退（CSP 禁止 onerror 内联，改用 data-img-fallback） ===== */
+    document.addEventListener(
+        'error',
+        function (e) {
+            var t = e.target;
+            if (!t || t.tagName !== 'IMG') return;
+            var fb = t.getAttribute('data-img-fallback');
+            if (!fb) return;
+            if (fb === 'hide') {
+                t.style.display = 'none';
+                t.style.visibility = 'hidden';
+                t.removeAttribute('data-img-fallback');
+                return;
+            }
+            // 防止回退图再失败时循环
+            t.removeAttribute('data-img-fallback');
+            t.src = fb;
+        },
+        true
+    );
+
     /* ===== Bootstrap Tooltip ===== */
     if (typeof bootstrap !== 'undefined') {
         $('[data-bs-toggle="tooltip"]').each(function () {

@@ -84,7 +84,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'enable_message' => !empty($_POST['enable_message']) ? '1' : '0',
         'about_html' => sanitize_admin_html($_POST['about_html'] ?? ''),
         'contact_html' => sanitize_admin_html($_POST['contact_html'] ?? ''),
-        'contact_email' => security_email($_POST['contact_email'] ?? '') ?: security_clean_text($_POST['contact_email'] ?? '', 120),
+        'contact_email' => (string) (security_email($_POST['contact_email'] ?? '') ?? ''),
         'seo_title' => security_clean_text($_POST['seo_title'] ?? '', 120),
         'seo_keywords' => security_clean_text($_POST['seo_keywords'] ?? '', 500),
         'seo_description' => security_clean_text($_POST['seo_description'] ?? '', 320),
@@ -95,7 +95,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'seo_baidu_verify' => $seoBaidu,
         'seo_google_verify' => $seoGoogle,
         'seo_bing_verify' => $seoBing,
-        'seo_head_html' => sanitize_admin_html($_POST['seo_head_html'] ?? ''),
+        'seo_head_html' => function_exists('security_sanitize_head_html')
+            ? security_sanitize_head_html($_POST['seo_head_html'] ?? '')
+            : '',
     ]);
     if (save_content($content)) {
         admin_log_write('settings_save', '保存站点设置', [

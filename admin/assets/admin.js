@@ -84,7 +84,16 @@
     if (tbody && tbody.querySelectorAll('tr').length === 0) {
       var empty = document.createElement('tr');
       empty.className = 'empty-row';
-      empty.innerHTML = '<td colspan="5" class="muted" style="text-align:center;padding:28px;">暂无数据，请点击添加</td>';
+      var colCount = 5;
+      var tableEl = tbody.closest('table');
+      var theadRow = tableEl && tableEl.querySelector('thead tr');
+      if (theadRow && theadRow.children && theadRow.children.length) {
+        colCount = theadRow.children.length;
+      }
+      empty.innerHTML =
+        '<td colspan="' +
+        colCount +
+        '" class="muted" style="text-align:center;padding:28px;">暂无数据，请点击添加</td>';
       tbody.appendChild(empty);
     }
   });

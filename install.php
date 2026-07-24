@@ -104,7 +104,8 @@ $old = [
     'db_port' => $_POST['db_port'] ?? '3306',
     'db_name' => $_POST['db_name'] ?? 'nav_site',
     'db_user' => $_POST['db_user'] ?? 'root',
-    'db_pass' => $_POST['db_pass'] ?? '',
+    // 失败重试不回显数据库密码，避免出现在 HTML 源码
+    'db_pass' => '',
     'create_database' => isset($_POST['create_database']) ? 1 : (empty($_POST) ? 1 : 0),
     'site_name' => $_POST['site_name'] ?? '夏尼猫网址导航',
     'site_subtitle' => $_POST['site_subtitle'] ?? '实用工具与优质站点聚合',
@@ -342,11 +343,11 @@ $old = [
             <div class="form-grid two">
                 <div>
                     <label for="admin_pass">密码</label>
-                    <input type="password" id="admin_pass" name="admin_pass" required minlength="6" autocomplete="new-password">
+                    <input type="password" id="admin_pass" name="admin_pass" required minlength="8" autocomplete="new-password">
                 </div>
                 <div>
                     <label for="admin_pass2">确认密码</label>
-                    <input type="password" id="admin_pass2" name="admin_pass2" required minlength="6" autocomplete="new-password">
+                    <input type="password" id="admin_pass2" name="admin_pass2" required minlength="8" autocomplete="new-password">
                 </div>
             </div>
 

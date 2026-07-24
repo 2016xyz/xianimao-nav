@@ -15,14 +15,28 @@ define('LINUXDO_OAUTH_USER', 'https://connect.linux.do/api/user');
 
 /**
  * 当前站点 origin（用于拼回调地址）
+ * 优先 seo_canonical / site_url；反代头走 security_is_https（需 trust_proxy）
  */
 function oauth_site_origin()
 {
-    $https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-        || (isset($_SERVER['SERVER_PORT']) && (string) $_SERVER['SERVER_PORT'] === '443')
-        || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && strtolower((string) $_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https');
+    if (function_exists('setting_get')) {
+        foreach (['seo_canonical', 'site_url'] as $key) {
+            $canon = trim((string) setting_get($key, ''));
+            if ($canon !== '' && preg_match('#^(https?://[a-zA-Z0-9.\-:]+)#', $canon, $m)) {
+                return rtrim($m[1], '/');
+            }
+        }
+    }
+
+    $https = function_exists('security_is_https')
+        ? security_is_https()
+        : ((!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+            || (isset($_SERVER['SERVER_PORT']) && (string) $_SERVER['SERVER_PORT'] === '443'));
     $scheme = $https ? 'https' : 'http';
-    $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+    $host = preg_replace('/[^a-zA-Z0-9.\-:\[\]]/', '', (string) ($_SERVER['HTTP_HOST'] ?? 'localhost'));
+    if ($host === '') {
+        $host = 'localhost';
+    }
     return $scheme . '://' . $host;
 }
 

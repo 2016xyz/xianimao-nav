@@ -12,13 +12,22 @@ $step = (string) ($_GET['step'] ?? 'start');
 $state = (string) ($_GET['state'] ?? ($_SESSION['52pojie_oauth_state'] ?? ''));
 
 if ($step === 'start') {
-    $state = bin2hex(random_bytes(16));
-    $_SESSION['52pojie_oauth_state'] = $state;
-    $_SESSION['52pojie_oauth_state_at'] = time();
-    redirect('oauth_52pojie.php?step=authorize&state=' . urlencode($state));
+    $url = oauth_52pojie_start();
+    // 统一走 start 生成 state；本页相对路径跳转 authorize
+    if (preg_match('/[?&]state=([^&]+)/', $url, $m)) {
+        redirect('oauth_52pojie.php?step=authorize&state=' . rawurlencode(rawurldecode($m[1])));
+    }
+    flash_set('error', '无法发起吾爱授权会话');
+    redirect('hotboards.php#52pojie-auth');
 }
 
-// authorize 步骤展示引导
+// authorize 步骤：校验 state + 15 分钟超时
+$stateAt = (int) ($_SESSION['52pojie_oauth_state_at'] ?? 0);
+if ($stateAt > 0 && (time() - $stateAt) > 900) {
+    unset($_SESSION['52pojie_oauth_state'], $_SESSION['52pojie_oauth_state_at']);
+    flash_set('error', '授权会话已超时（15 分钟），请重新发起');
+    redirect('hotboards.php#52pojie-auth');
+}
 if ($state === '' || empty($_SESSION['52pojie_oauth_state']) || !hash_equals((string) $_SESSION['52pojie_oauth_state'], $state)) {
     flash_set('error', '授权会话无效，请从热榜设置重新发起');
     redirect('hotboards.php#52pojie-auth');

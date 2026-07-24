@@ -645,6 +645,78 @@ function updater_find_package_root($extractDir)
 }
 
 /**
+ * 安全解压 Zip：拒绝 .. / 绝对路径 / 逃逸 extractDir 的条目
+ * @param ZipArchive $zip
+ * @param string $extractDir
+ * @return bool
+ */
+function updater_safe_extract(ZipArchive $zip, $extractDir)
+{
+    $extractDir = rtrim(str_replace('\\', '/', $extractDir), '/');
+    if ($extractDir === '' || !is_dir($extractDir)) {
+        return false;
+    }
+    // 规范化基路径（Windows 下 realpath 可能为反斜杠）
+    $baseReal = realpath($extractDir);
+    if ($baseReal === false) {
+        return false;
+    }
+    $baseReal = rtrim(str_replace('\\', '/', $baseReal), '/');
+
+    for ($i = 0; $i < $zip->numFiles; $i++) {
+        $stat = $zip->statIndex($i);
+        if (!is_array($stat) || empty($stat['name'])) {
+            return false;
+        }
+        $name = str_replace('\\', '/', (string) $stat['name']);
+        // 拒绝绝对路径、盘符、空名、.. 段
+        if ($name === '' || $name[0] === '/' || preg_match('#^[A-Za-z]:#', $name)) {
+            return false;
+        }
+        if (strpos($name, "\0") !== false) {
+            return false;
+        }
+        $parts = explode('/', $name);
+        foreach ($parts as $p) {
+            if ($p === '..') {
+                return false;
+            }
+        }
+        // 目标路径必须落在 extractDir 下
+        $target = $extractDir . '/' . $name;
+        $isDir = substr($name, -1) === '/';
+        if ($isDir) {
+            if (!is_dir($target) && !@mkdir($target, 0755, true) && !is_dir($target)) {
+                return false;
+            }
+            continue;
+        }
+        $parent = dirname($target);
+        if (!is_dir($parent) && !@mkdir($parent, 0755, true) && !is_dir($parent)) {
+            return false;
+        }
+        $content = $zip->getFromIndex($i);
+        if ($content === false) {
+            return false;
+        }
+        if (@file_put_contents($target, $content) === false) {
+            return false;
+        }
+        // 写后 realpath 校验（目录需已存在）
+        $writtenReal = realpath($target);
+        if ($writtenReal === false) {
+            return false;
+        }
+        $writtenReal = str_replace('\\', '/', $writtenReal);
+        if (strpos($writtenReal, $baseReal . '/') !== 0 && $writtenReal !== $baseReal) {
+            @unlink($target);
+            return false;
+        }
+    }
+    return true;
+}
+
+/**
  * 复制更新包文件到站点（跳过保护路径）
  * @return array{ok:bool,copied:int,skipped:int,errors:string[],message:string}
  */
@@ -782,13 +854,14 @@ function updater_apply(?array $remote = null)
         @unlink($zipFile);
         return ['ok' => false, 'message' => '无法创建解压目录', 'detail' => []];
     }
-    if (!$zip->extractTo($extractDir)) {
-        $zip->close();
+    // Zip Slip 防护：先校验所有条目路径，再安全解压
+    $extractOk = updater_safe_extract($zip, $extractDir);
+    $zip->close();
+    if (!$extractOk) {
         updater_rrmdir($extractDir);
         @unlink($zipFile);
-        return ['ok' => false, 'message' => '解压更新包失败', 'detail' => []];
+        return ['ok' => false, 'message' => '解压更新包失败（含非法路径或写入错误）', 'detail' => []];
     }
-    $zip->close();
 
     $root = updater_find_package_root($extractDir);
     if ($root === null) {

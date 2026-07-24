@@ -75,7 +75,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     mailer_notify_admin_submission('message', $payload);
                     $ok = true;
                 } else {
-                    $error = '提交失败，请稍后重试';
+                    $error = '提交失败，请稍后重试（验证码仍有效，可直接再提交）';
                 }
             }
         }

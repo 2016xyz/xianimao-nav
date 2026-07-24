@@ -715,8 +715,12 @@ function load_admin_by_username($username)
  */
 function update_admin_password($username, $newHash)
 {
-    $stmt = db()->prepare('UPDATE admins SET password_hash = ? WHERE username = ?');
-    return $stmt->execute([$newHash, $username]);
+    try {
+        $stmt = db()->prepare('UPDATE admins SET password_hash = ? WHERE username = ?');
+        return $stmt->execute([$newHash, $username]);
+    } catch (Throwable $e) {
+        return false;
+    }
 }
 
 /**
@@ -1183,7 +1187,13 @@ function secret_blob_migrate_from_file($name, $filePath)
     if (!is_array($j) || $j === []) {
         return $existing;
     }
-    secret_blob_set($name, $j);
+    if (secret_blob_set($name, $j)) {
+        // 迁移成功后重命名旧文件，避免双份密钥残留
+        $bak = $filePath . '.migrated.' . date('YmdHis');
+        if (!@rename($filePath, $bak)) {
+            @unlink($filePath);
+        }
+    }
     return $j;
 }
 
@@ -1598,12 +1608,10 @@ function render_seo_head(array $site, array $overrides = [])
     if ($m['bing_verify'] !== '') {
         echo '    <meta name="msvalidate.01" content="' . e($m['bing_verify']) . "\">\n";
     }
-    $extra = sanitize_admin_html($m['head_html']);
-    // 仅允许 meta/link，强制剥离 script / 事件
-    $extra = preg_replace('#<\s*script\b[^>]*>.*?<\s*/\s*script\s*>#is', '', $extra);
-    $extra = preg_replace('#<\s*/?\s*script\b[^>]*>#i', '', $extra);
-    $extra = preg_replace('#\son\w+\s*=\s*(\'[^\']*\'|"[^"]*"|[^\s>]+)#i', '', $extra);
-    $extra = trim(strip_tags($extra, '<meta><link>'));
+    // 专用 head 消毒（勿先走 body HTML 白名单，否则 meta/link 会被剥光）
+    $extra = function_exists('security_sanitize_head_html')
+        ? security_sanitize_head_html($m['head_html'])
+        : '';
     if ($extra !== '') {
         echo '    ' . $extra . "\n";
     }

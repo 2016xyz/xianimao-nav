@@ -876,6 +876,9 @@ function hot_normalize_item(array $row, $rank, $sourceId)
     $url = is_string($url) ? trim($url) : '';
     if ($url === '' || $url === 'null') {
         $url = hot_build_fallback_url($sourceId, $title);
+    } elseif (function_exists('security_url')) {
+        $safe = security_url($url, false);
+        $url = $safe !== '' ? $safe : hot_build_fallback_url($sourceId, $title);
     }
 
     return [

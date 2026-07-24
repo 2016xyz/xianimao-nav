@@ -52,7 +52,7 @@ function admin_layout_start($title, $page = '')
     <meta name="referrer" content="strict-origin-when-cross-origin">
 </head>
 <body class="admin-body">
-    <script type="application/json" id="admin-boot">
+    <template id="admin-boot">
 <?php
     echo json_encode([
         'pageTitle' => $title,
@@ -61,7 +61,7 @@ function admin_layout_start($title, $page = '')
         'hasFlash' => (bool) $flash,
     ], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS);
 ?>
-    </script>
+    </template>
 
     <div class="admin-shell" id="adminShell">
         <header class="admin-topbar">
@@ -131,6 +131,10 @@ function admin_layout_start($title, $page = '')
 
 function admin_layout_end(array $extraScripts = [])
 {
+    // 缓存戳在 end 内独立计算（不可依赖 start 的局部变量）
+    $vj = @filemtime(__DIR__ . '/assets/vendor/vue.global.prod.js') ?: time();
+    $vv = @filemtime(__DIR__ . '/assets/admin-vue.js') ?: time();
+    $vAdminJs = @filemtime(__DIR__ . '/assets/admin.js') ?: time();
     ?>
                 </div>
             </div>
@@ -142,7 +146,7 @@ function admin_layout_end(array $extraScripts = [])
     <?php foreach ($extraScripts as $src): ?>
         <script src="<?php echo e($src); ?>"></script>
     <?php endforeach; ?>
-    <script src="assets/admin.js"></script>
+    <script src="assets/admin.js?v=<?php echo (int) $vAdminJs; ?>"></script>
 </body>
 </html>
     <?php

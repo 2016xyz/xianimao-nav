@@ -119,15 +119,24 @@ function install_check_environment()
  */
 function install_test_db(array $cfg, $createDatabase = false)
 {
-    $host = $cfg['host'] ?? '127.0.0.1';
+    $host = preg_replace('/[^a-zA-Z0-9.\-:]/', '', (string) ($cfg['host'] ?? '127.0.0.1'));
     $port = (int) ($cfg['port'] ?? 3306);
     $user = $cfg['username'] ?? 'root';
     $pass = $cfg['password'] ?? '';
-    $dbname = $cfg['database'] ?? '';
-    $charset = $cfg['charset'] ?? 'utf8mb4';
+    $dbname = preg_replace('/[^a-zA-Z0-9_\-]/', '', (string) ($cfg['database'] ?? ''));
+    $charset = preg_replace('/[^a-zA-Z0-9_]/', '', (string) ($cfg['charset'] ?? 'utf8mb4'));
 
+    if ($host === '') {
+        $host = '127.0.0.1';
+    }
+    if ($port <= 0 || $port > 65535) {
+        $port = 3306;
+    }
+    if ($charset === '') {
+        $charset = 'utf8mb4';
+    }
     if ($dbname === '') {
-        return ['ok' => false, 'message' => '数据库名不能为空'];
+        return ['ok' => false, 'message' => '数据库名不能为空或含非法字符'];
     }
 
     try {
@@ -352,8 +361,8 @@ function install_run(array $input)
     if ($site['name'] === '') {
         return ['ok' => false, 'message' => '站点名称不能为空'];
     }
-    if ($adminUser === '' || strlen($adminPass) < 6) {
-        return ['ok' => false, 'message' => '管理员用户名不能为空，密码至少 6 位'];
+    if ($adminUser === '' || strlen($adminPass) < 8) {
+        return ['ok' => false, 'message' => '管理员用户名不能为空，密码至少 8 位'];
     }
     if ($adminPass !== $adminPass2) {
         return ['ok' => false, 'message' => '两次输入的管理员密码不一致'];
@@ -364,9 +373,18 @@ function install_run(array $input)
         return ['ok' => false, 'message' => '环境检测未通过，请先解决红色项'];
     }
 
+    // 先写配置+锁，降低「库已初始化却无配置」半安装态概率
+    try {
+        install_write_config($db);
+    } catch (Throwable $e) {
+        return ['ok' => false, 'message' => $e->getMessage() . '（请先保证 config 目录可写）'];
+    }
+
     $createDb = !empty($input['create_database']);
     $test = install_test_db($db, $createDb);
     if (!$test['ok']) {
+        @unlink(DB_CONFIG_FILE);
+        @unlink(INSTALL_LOCK_FILE);
         return ['ok' => false, 'message' => '数据库连接失败：' . $test['message']];
     }
 
@@ -377,7 +395,11 @@ function install_run(array $input)
     try {
         install_run_schema($pdo);
     } catch (Throwable $e) {
-        return ['ok' => false, 'message' => '创建数据表失败：' . $e->getMessage()];
+        return [
+            'ok' => false,
+            'message' => '创建数据表失败：' . $e->getMessage()
+                . '。配置已写入，可修复权限后重试或清理库表后重装。',
+        ];
     }
 
     try {
@@ -388,13 +410,11 @@ function install_run(array $input)
         if ($pdo->inTransaction()) {
             $pdo->rollBack();
         }
-        return ['ok' => false, 'message' => '初始化数据失败：' . $e->getMessage()];
-    }
-
-    try {
-        install_write_config($db);
-    } catch (Throwable $e) {
-        return ['ok' => false, 'message' => $e->getMessage()];
+        return [
+            'ok' => false,
+            'message' => '初始化数据失败：' . $e->getMessage()
+                . '。配置与表结构可能已存在，请检查后重试或手工完成种子数据。',
+        ];
     }
 
     return ['ok' => true, 'message' => '安装成功'];

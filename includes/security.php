@@ -9,7 +9,30 @@ if (!defined('ROOT_PATH')) {
 }
 
 /**
- * 是否 HTTPS（含反向代理）
+ * 是否信任反向代理头（X-Forwarded-*）
+ * 仅当 settings 中 trust_proxy=1，或环境变量 NAV_TRUST_PROXY=1 时启用
+ */
+function security_trust_proxy()
+{
+    static $cached = null;
+    if ($cached !== null) {
+        return $cached;
+    }
+    $env = getenv('NAV_TRUST_PROXY');
+    if ($env === '1' || strtolower((string) $env) === 'true') {
+        return $cached = true;
+    }
+    if (function_exists('setting_get')) {
+        $v = setting_get('trust_proxy', '0');
+        if ($v === '1' || $v === 'true' || $v === 'on') {
+            return $cached = true;
+        }
+    }
+    return $cached = false;
+}
+
+/**
+ * 是否 HTTPS（默认只信本机 HTTPS/443；反代头需 trust_proxy）
  */
 function security_is_https()
 {
@@ -19,9 +42,11 @@ function security_is_https()
     if ((int) ($_SERVER['SERVER_PORT'] ?? 0) === 443) {
         return true;
     }
-    $proto = strtolower((string) ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? ''));
-    if ($proto === 'https') {
-        return true;
+    if (security_trust_proxy()) {
+        $proto = strtolower((string) ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? ''));
+        if ($proto === 'https') {
+            return true;
+        }
     }
     return false;
 }
@@ -183,13 +208,14 @@ function security_url($url, $allowRelative = true)
         return '';
     }
     if ($allowRelative) {
+        // 使用 ~ 作定界符，避免 URL 中的 # 提前结束模式
         if (strpos($url, '/') === 0 && strpos($url, '//') !== 0) {
-            if (preg_match('#^/[A-Za-z0-9_./?&=%\-#]*$#', $url)) {
+            if (preg_match('~^/[A-Za-z0-9_./?&=%\\-#]*$~', $url)) {
                 return $url;
             }
             return '';
         }
-        if (preg_match('#^[A-Za-z0-9_./\-]+\.php(\?[A-Za-z0-9_=&%\-./]*)?$#', $url)) {
+        if (preg_match('~^[A-Za-z0-9_./\\-]+\\.php(\\?[A-Za-z0-9_=&%\\-./]*)?$~', $url)) {
             return $url;
         }
     }
@@ -306,6 +332,7 @@ function security_post_text($key, $maxLen = 500, $default = '')
 
 /**
  * 后台可编辑 HTML 白名单消毒（防存储型 XSS）
+ * 非 <a> 标签剥离全部属性；<a> 仅保留安全 href/target/rel
  */
 function security_sanitize_html($html, $maxLen = 20000)
 {
@@ -325,6 +352,20 @@ function security_sanitize_html($html, $maxLen = 20000)
     $clean = preg_replace('/javascript\s*:/iu', '', $clean) ?? $clean;
     $clean = preg_replace('/vbscript\s*:/iu', '', $clean) ?? $clean;
     $clean = preg_replace('/data\s*:/iu', '', $clean) ?? $clean;
+
+    // 非 a 标签：去掉全部属性，仅保留标签名
+    $clean = preg_replace_callback(
+        '/<(\/?)(p|br|b|strong|i|em|u|ul|ol|li|h2|h3|h4|span|div|blockquote)\b([^>]*)>/iu',
+        static function ($m) {
+            $slash = $m[1];
+            $tag = strtolower($m[2]);
+            if ($tag === 'br') {
+                return '<br>';
+            }
+            return '<' . $slash . $tag . '>';
+        },
+        $clean
+    ) ?? $clean;
 
     // 规范化 <a href>：仅 http(s) / mailto / 站内相对
     $clean = preg_replace_callback(
@@ -372,6 +413,89 @@ function security_sanitize_html($html, $maxLen = 20000)
     // 再次去掉可能残留的 script 标签碎片
     $clean = preg_replace('#<\s*/?\s*script\b[^>]*>#iu', '', $clean) ?? $clean;
     return $clean;
+}
+
+/**
+ * SEO 自定义 Head 片段：仅允许 meta / link，并校验关键属性
+ */
+function security_sanitize_head_html($html, $maxLen = 8000)
+{
+    $html = security_truncate(security_strip_controls((string) $html), $maxLen);
+    if ($html === '') {
+        return '';
+    }
+    $decoded = html_entity_decode($html, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    // 先去掉 script / style / 事件
+    $decoded = preg_replace('#<\s*script\b[^>]*>.*?<\s*/\s*script\s*>#is', '', $decoded) ?? $decoded;
+    $decoded = preg_replace('#<\s*/?\s*script\b[^>]*>#i', '', $decoded) ?? $decoded;
+    $decoded = preg_replace('#<\s*style\b[^>]*>.*?<\s*/\s*style\s*>#is', '', $decoded) ?? $decoded;
+    $decoded = preg_replace('/\s+on\w+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)/iu', '', $decoded) ?? $decoded;
+
+    $parts = [];
+    if (preg_match_all('#<\s*(meta|link)\b([^>]*)/?>#iu', $decoded, $matches, PREG_SET_ORDER)) {
+        foreach ($matches as $m) {
+            $tag = strtolower($m[1]);
+            $attrs = $m[2];
+            $bag = [];
+            if (preg_match_all('/([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*([\'"])(.*?)\2/su', $attrs, $am, PREG_SET_ORDER)) {
+                foreach ($am as $a) {
+                    $name = strtolower($a[1]);
+                    $val = html_entity_decode($a[3], ENT_QUOTES | ENT_HTML5, 'UTF-8');
+                    $val = security_strip_controls($val);
+                    if ($tag === 'meta') {
+                        if (!in_array($name, ['name', 'content', 'property', 'http-equiv', 'charset'], true)) {
+                            continue;
+                        }
+                        if ($name === 'http-equiv' && !in_array(strtolower($val), ['x-ua-compatible', 'content-type', 'content-language'], true)) {
+                            continue;
+                        }
+                        if ($name === 'content' && preg_match('/javascript\s*:|data\s*:|vbscript\s*:/iu', $val)) {
+                            continue;
+                        }
+                        $bag[$name] = $val;
+                    } else { // link
+                        if (!in_array($name, ['rel', 'href', 'type', 'sizes', 'crossorigin', 'media'], true)) {
+                            continue;
+                        }
+                        if ($name === 'href') {
+                            $safe = security_url($val, true);
+                            if ($safe === '') {
+                                continue 2;
+                            }
+                            $val = $safe;
+                        }
+                        if ($name === 'rel') {
+                            $rel = strtolower($val);
+                            if (
+                                preg_match('/import|prefetch|preload|modulepreload/i', $rel) && stripos($rel, 'stylesheet') === false
+                                && stripos($rel, 'icon') === false && stripos($rel, 'canonical') === false
+                                && stripos($rel, 'alternate') === false && stripos($rel, 'manifest') === false
+                            ) {
+                                // 允许常见 SEO/图标 rel；拒绝可疑 import
+                            }
+                            if (preg_match('/\bimport\b/i', $rel)) {
+                                continue 2;
+                            }
+                        }
+                        $bag[$name] = $val;
+                    }
+                }
+            }
+            if ($tag === 'meta' && empty($bag['name']) && empty($bag['property']) && empty($bag['http-equiv']) && empty($bag['charset'])) {
+                continue;
+            }
+            if ($tag === 'link' && (empty($bag['rel']) || empty($bag['href']))) {
+                continue;
+            }
+            $htmlTag = '<' . $tag;
+            foreach ($bag as $k => $v) {
+                $htmlTag .= ' ' . $k . '="' . htmlspecialchars($v, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+            }
+            $htmlTag .= '>';
+            $parts[] = $htmlTag;
+        }
+    }
+    return implode("\n    ", $parts);
 }
 
 /**

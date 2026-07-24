@@ -85,6 +85,12 @@ function smtp_config()
 function smtp_save_config(array $input)
 {
     $prev = smtp_config();
+    $fromEmail = function_exists('security_email')
+        ? (security_email($input['from_email'] ?? '') ?? '')
+        : trim((string) ($input['from_email'] ?? ''));
+    $loginEmail = function_exists('security_email')
+        ? (security_email($input['login_email'] ?? '') ?? '')
+        : trim((string) ($input['login_email'] ?? ''));
     $cfg = [
         'enabled' => !empty($input['enabled']) ? '1' : '0',
         'host' => trim((string) ($input['host'] ?? '')),
@@ -92,10 +98,12 @@ function smtp_save_config(array $input)
         'encryption' => trim((string) ($input['encryption'] ?? 'ssl')),
         'user' => trim((string) ($input['user'] ?? '')),
         'pass' => trim((string) ($input['pass'] ?? '')),
-        'from_email' => trim((string) ($input['from_email'] ?? '')),
-        'from_name' => trim((string) ($input['from_name'] ?? '')),
+        'from_email' => $fromEmail,
+        'from_name' => function_exists('security_clean_text')
+            ? security_clean_text($input['from_name'] ?? '', 80)
+            : trim((string) ($input['from_name'] ?? '')),
         'login_email_verify' => !empty($input['login_email_verify']) ? '1' : '0',
-        'login_email' => trim((string) ($input['login_email'] ?? '')),
+        'login_email' => $loginEmail,
         'updated_at' => date('Y-m-d H:i:s'),
     ];
     if ($cfg['pass'] === '') {
@@ -204,9 +212,18 @@ function mailer_send($to, $subject, $htmlBody, $textBody = '')
         return ['ok' => false, 'message' => '收件人邮箱无效'];
     }
 
-    $fromEmail = $cfg['from_email'];
+    $fromEmail = function_exists('security_email')
+        ? (security_email($cfg['from_email'] ?? '') ?? '')
+        : trim((string) ($cfg['from_email'] ?? ''));
+    if ($fromEmail === '' || !filter_var($fromEmail, FILTER_VALIDATE_EMAIL)) {
+        return ['ok' => false, 'message' => '发件人邮箱无效'];
+    }
+    // 剥离邮件头注入字符
+    $fromEmail = str_replace(["\r", "\n", "\0"], '', $fromEmail);
+    $to = str_replace(["\r", "\n", "\0"], '', $to);
     $fromName = $cfg['from_name'] !== '' ? $cfg['from_name'] : '导航管理后台';
-    $subject = (string) $subject;
+    $fromName = str_replace(["\r", "\n", "\0"], '', (string) $fromName);
+    $subject = str_replace(["\r", "\n", "\0"], '', (string) $subject);
     $htmlBody = (string) $htmlBody;
     if ($textBody === '') {
         $textBody = trim(html_entity_decode(strip_tags(str_replace(['<br>', '<br/>', '<br />', '</p>'], "\n", $htmlBody)), ENT_QUOTES, 'UTF-8'));
@@ -317,6 +334,7 @@ function mailer_send($to, $subject, $htmlBody, $textBody = '')
 
 function mailer_encode_header($str)
 {
+    $str = str_replace(["\r", "\n", "\0"], '', (string) $str);
     if (preg_match('/[^\x20-\x7E]/', $str)) {
         return '=?UTF-8?B?' . base64_encode($str) . '?=';
     }
@@ -325,8 +343,11 @@ function mailer_encode_header($str)
 
 function mailer_encode_address($name, $email)
 {
-    $name = trim((string) $name);
-    $email = trim((string) $email);
+    $name = str_replace(["\r", "\n", "\0"], '', trim((string) $name));
+    $email = str_replace(["\r", "\n", "\0"], '', trim((string) $email));
+    if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        return '';
+    }
     if ($name === '') {
         return $email;
     }
@@ -436,7 +457,8 @@ function mailer_send_login_code($username)
     }
 
     $html = mailer_login_code_html($code, $username, $siteName);
-    $subject = '【' . $siteName . '】后台登录验证码 ' . $code;
+    // 主题不含验证码，避免邮件列表/网关日志泄露 OTP
+    $subject = '【' . $siteName . '】后台登录验证码';
     $text = "你的后台登录验证码是：{$code}，10 分钟内有效。用户：{$username}";
 
     $result = mailer_send($to, $subject, $html, $text);
@@ -666,7 +688,8 @@ function mailer_send_form_code($email, $scope = 'message')
     $purpose = $scope === 'apply' ? '申请收录邮箱验证' : '在线留言邮箱验证';
     $siteName = mailer_site_name();
     $html = mailer_form_code_html($code, $purpose, $siteName);
-    $subject = '【' . $siteName . '】' . $purpose . ' ' . $code;
+    // 主题不含验证码
+    $subject = '【' . $siteName . '】' . $purpose;
     $text = "验证码：{$code}，10 分钟内有效。用途：{$purpose}";
 
     $result = mailer_send($email, $subject, $html, $text);
@@ -729,8 +752,8 @@ function mailer_verify_form_code($email, $code, $scope = 'message', $consume = f
  */
 function mailer_require_form_email_verified($email, $code, $scope = 'message')
 {
-    // 校验成功即消费验证码，防止同一验证码在有效期内重复提交
-    return mailer_verify_form_code($email, $code, $scope, true);
+    // 仅校验不消费：入库成功后再 clear，避免保存失败导致用户必须重新发码
+    return mailer_verify_form_code($email, $code, $scope, false);
 }
 
 function mailer_clear_form_code($scope)

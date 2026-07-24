@@ -134,7 +134,7 @@ require __DIR__ . '/includes/header.php';
                     <div class="hot-card" data-board="<?php echo e($bid); ?>" data-target="<?php echo e($targetId); ?>">
                         <div class="hot-card-header">
                             <?php if ($logo !== ''): ?>
-                                <img class="hot-card-logo" src="<?php echo e($logo); ?>" alt="" onerror="this.style.display='none'">
+                                <img class="hot-card-logo" src="<?php echo e($logo); ?>" alt="" data-img-fallback="hide">
                             <?php else: ?>
                                 <i class="bi bi-fire hot-card-logo" style="font-size:1rem;width:auto;height:auto;"></i>
                             <?php endif; ?>
@@ -201,7 +201,7 @@ require __DIR__ . '/includes/header.php';
                                     src="<?php echo e(site_favicon_url($siteItem['url'] ?? '')); ?>"
                                     alt=""
                                     loading="lazy"
-                                    onerror="this.src='assets/images/github.png'"
+                                    data-img-fallback="assets/images/github.png"
                                 >
                             </div>
                             <div class="site-info">
@@ -248,7 +248,7 @@ require __DIR__ . '/includes/header.php';
                                     src="<?php echo e(site_favicon_url($project['url'] ?? '')); ?>"
                                     alt=""
                                     loading="lazy"
-                                    onerror="this.src='assets/images/github.png'"
+                                    data-img-fallback="assets/images/github.png"
                                 >
                             </div>
                             <div class="site-info">
@@ -321,7 +321,7 @@ require __DIR__ . '/includes/header.php';
                             src="<?php echo e(site_favicon_url($link['url'] ?? '')); ?>"
                             alt=""
                             loading="lazy"
-                            onerror="this.style.visibility='hidden'"
+                            data-img-fallback="hide"
                         >
                         <span class="site-name"><?php echo e($link['name'] ?? ''); ?></span>
                     </a>

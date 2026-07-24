@@ -29,6 +29,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $names = $_POST['name'] ?? [];
     $urls = $_POST['url'] ?? [];
     $descs = $_POST['desc'] ?? [];
+    $tags = $_POST['tag'] ?? [];
     $ids = $_POST['id'] ?? [];
     $projects = [];
 
@@ -37,6 +38,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $name = security_clean_text($name, 80);
             $url = security_url(trim((string) ($urls[$i] ?? '')), false);
             $desc = security_clean_text($descs[$i] ?? '', 300);
+            $tag = security_clean_text(is_array($tags) ? ($tags[$i] ?? '') : '', 40);
             $id = security_id($ids[$i] ?? '', 64);
             if ($name === '' || $url === '') {
                 continue;
@@ -48,6 +50,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'id' => $id,
                 'name' => $name,
                 'url' => $url,
+                'tag' => $tag,
                 'desc' => $desc,
             ];
         }

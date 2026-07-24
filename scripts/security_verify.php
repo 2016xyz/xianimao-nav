@@ -81,8 +81,8 @@ foreach ($phpFiles as $f) {
         continue;
     }
     $c = file_get_contents($path);
-    // 业务页不应出现 <script>内联（允许外链 script src）
-    if (preg_match('/<script(?![^>]*\bsrc=)[^>]*>/i', $c)) {
+    // 业务页不应出现可执行内联 <script>（允许 src= 外链；允许 type=application/json 数据岛）
+    if (preg_match('/<script(?![^>]*(?:\bsrc=|type\s*=\s*[\'"]application\/(?:ld\+)?json[\'"]))[^>]*>/i', $c)) {
         $inlineHits[] = $path;
     }
 }

@@ -192,7 +192,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         redirect('hotboards.php#52pojie-auth');
     }
 
-    // —— 启用列表 ——
+    // —— 启用列表（仅 save_boards；未知 action 不得落入默认保存）——
+    if ($action !== 'save_boards') {
+        flash_set('error', '未知操作：' . security_clean_text($action, 40));
+        redirect('hotboards.php');
+    }
+
     $selected = $_POST['enabled'] ?? [];
     if (!is_array($selected)) {
         $selected = [];
@@ -494,18 +499,18 @@ admin_layout_start('今日热榜', 'hotboards');
             <input type="hidden" name="action" value="sync_linuxdo_profile">
             <button type="submit" class="btn btn-secondary" <?php echo !$hasOAuthToken ? 'disabled title="请先完成 OAuth"' : ''; ?>>同步用户资料</button>
         </form>
-        <form method="post" style="display:inline;" onsubmit="return confirm('仅清除 OAuth 令牌，保留已保存的 API Key / Cookie？');">
+        <form method="post" style="display:inline;" data-confirm="仅清除 OAuth 令牌，保留已保存的 API Key / Cookie？">
             <?php echo csrf_field(); ?>
             <input type="hidden" name="action" value="revoke_linuxdo_oauth">
             <button type="submit" class="btn btn-secondary" <?php echo !$hasOAuthToken ? 'disabled' : ''; ?>>仅解绑 OAuth</button>
         </form>
-        <form method="post" style="display:inline;" onsubmit="return confirm('确定解绑 OAuth 并清除全部 Linux.do 凭证（含 API Key / Cookie）？');">
+        <form method="post" style="display:inline;" data-confirm="确定解绑 OAuth 并清除全部 Linux.do 凭证（含 API Key / Cookie）？">
             <?php echo csrf_field(); ?>
             <input type="hidden" name="action" value="revoke_linuxdo_oauth">
             <input type="hidden" name="clear_api" value="1">
             <button type="submit" class="btn btn-danger">解绑并清除全部凭证</button>
         </form>
-        <form method="post" style="display:inline;" onsubmit="return confirm('确定清除 Linux.do 手动登录凭证（不影响 OAuth 令牌）？');">
+        <form method="post" style="display:inline;" data-confirm="确定清除 Linux.do 手动登录凭证（不影响 OAuth 令牌）？">
             <?php echo csrf_field(); ?>
             <input type="hidden" name="action" value="save_linuxdo">
             <input type="hidden" name="clear_linuxdo" value="1">
@@ -597,7 +602,7 @@ admin_layout_start('今日热榜', 'hotboards');
             <input type="hidden" name="action" value="refresh_52pojie">
             <button type="submit" class="btn btn-secondary">刷新前台缓存</button>
         </form>
-        <form method="post" style="display:inline;" onsubmit="return confirm('确定清除吾爱登录凭证？');">
+        <form method="post" style="display:inline;" data-confirm="确定清除吾爱登录凭证？">
             <?php echo csrf_field(); ?>
             <input type="hidden" name="action" value="clear_52pojie">
             <button type="submit" class="btn btn-danger">清除凭证</button>
