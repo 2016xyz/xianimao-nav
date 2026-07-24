@@ -466,14 +466,15 @@ function security_sanitize_head_html($html, $maxLen = 8000)
                         }
                         if ($name === 'rel') {
                             $rel = strtolower($val);
-                            if (
-                                preg_match('/import|prefetch|preload|modulepreload/i', $rel) && stripos($rel, 'stylesheet') === false
-                                && stripos($rel, 'icon') === false && stripos($rel, 'canonical') === false
-                                && stripos($rel, 'alternate') === false && stripos($rel, 'manifest') === false
-                            ) {
-                                // 允许常见 SEO/图标 rel；拒绝可疑 import
+                            $rels = preg_split('/\s+/', trim($rel)) ?: [];
+                            $allowedRels = ['canonical', 'icon', 'shortcut', 'apple-touch-icon', 'alternate', 'manifest', 'stylesheet'];
+                            $blockedRels = ['import', 'prefetch', 'preload', 'modulepreload'];
+                            foreach ($rels as $relToken) {
+                                if ($relToken === '' || in_array($relToken, $blockedRels, true) || !in_array($relToken, $allowedRels, true)) {
+                                    continue 3;
+                                }
                             }
-                            if (preg_match('/\bimport\b/i', $rel)) {
+                            if (!$rels) {
                                 continue 2;
                             }
                         }

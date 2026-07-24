@@ -365,7 +365,6 @@ function updater_is_allowed_package_path($rel)
         'config/',
         'docs/',
         'includes/',
-        'scripts/',
     ];
     $allowFiles = [
         'index.php',

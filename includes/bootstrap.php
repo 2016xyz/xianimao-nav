@@ -143,139 +143,143 @@ function load_content()
         return $jsonFallback;
     };
 
-    // settings
-    $rows = $pdo->query('SELECT skey, svalue FROM settings')->fetchAll();
-    $map = [];
-    foreach ($rows as $r) {
-        $map[$r['skey']] = $r['svalue'];
-    }
-    // 库中无站点配置时合并 JSON，避免双写分裂导致「内容丢失」
-    if (empty($map['site_name'])) {
-        $jf = $needJson();
-        if (!empty($jf['site']['name'])) {
-            $map['site_name'] = $map['site_name'] ?? $jf['site']['name'];
-            $map['site_subtitle'] = $map['site_subtitle'] ?? ($jf['site']['subtitle'] ?? '');
-            $map['site_footer'] = $map['site_footer'] ?? ($jf['site']['footer'] ?? '');
-            $map['about_html'] = $map['about_html'] ?? ($jf['site']['about_html'] ?? '');
-            $map['contact_html'] = $map['contact_html'] ?? ($jf['site']['contact_html'] ?? '');
-            $map['contact_email'] = $map['contact_email'] ?? ($jf['site']['contact_email'] ?? '');
+    try {
+        // settings
+        $rows = $pdo->query('SELECT skey, svalue FROM settings')->fetchAll();
+        $map = [];
+        foreach ($rows as $r) {
+            $map[$r['skey']] = $r['svalue'];
         }
-    }
-    // SEO 等扩展字段：库中缺失时从 JSON 补齐（升级兼容）
-    $extraSiteKeys = [
-        'hero_bg',
-        'seo_title',
-        'seo_keywords',
-        'seo_description',
-        'seo_author',
-        'seo_robots',
-        'seo_canonical',
-        'seo_og_image',
-        'seo_baidu_verify',
-        'seo_google_verify',
-        'seo_bing_verify',
-        'seo_head_html',
-    ];
-    $needExtraFallback = false;
-    foreach ($extraSiteKeys as $sk) {
-        if (!array_key_exists($sk, $map) || $map[$sk] === null) {
-            $needExtraFallback = true;
-            break;
+        // 库中无站点配置时合并 JSON，避免双写分裂导致「内容丢失」
+        if (empty($map['site_name'])) {
+            $jf = $needJson();
+            if (!empty($jf['site']['name'])) {
+                $map['site_name'] = $map['site_name'] ?? $jf['site']['name'];
+                $map['site_subtitle'] = $map['site_subtitle'] ?? ($jf['site']['subtitle'] ?? '');
+                $map['site_footer'] = $map['site_footer'] ?? ($jf['site']['footer'] ?? '');
+                $map['about_html'] = $map['about_html'] ?? ($jf['site']['about_html'] ?? '');
+                $map['contact_html'] = $map['contact_html'] ?? ($jf['site']['contact_html'] ?? '');
+                $map['contact_email'] = $map['contact_email'] ?? ($jf['site']['contact_email'] ?? '');
+            }
         }
-    }
-    if ($needExtraFallback) {
-        $jf = $needJson();
+        // SEO 等扩展字段：库中缺失时从 JSON 补齐（升级兼容）
+        $extraSiteKeys = [
+            'hero_bg',
+            'seo_title',
+            'seo_keywords',
+            'seo_description',
+            'seo_author',
+            'seo_robots',
+            'seo_canonical',
+            'seo_og_image',
+            'seo_baidu_verify',
+            'seo_google_verify',
+            'seo_bing_verify',
+            'seo_head_html',
+        ];
+        $needExtraFallback = false;
         foreach ($extraSiteKeys as $sk) {
             if (!array_key_exists($sk, $map) || $map[$sk] === null) {
-                if (isset($jf['site'][$sk])) {
-                    $map[$sk] = $jf['site'][$sk];
+                $needExtraFallback = true;
+                break;
+            }
+        }
+        if ($needExtraFallback) {
+            $jf = $needJson();
+            foreach ($extraSiteKeys as $sk) {
+                if (!array_key_exists($sk, $map) || $map[$sk] === null) {
+                    if (isset($jf['site'][$sk])) {
+                        $map[$sk] = $jf['site'][$sk];
+                    }
                 }
             }
         }
-    }
-    $footerLinks = [];
-    if (!empty($map['footer_links_json'])) {
-        $decoded = json_decode((string) $map['footer_links_json'], true);
-        if (is_array($decoded)) {
-            $footerLinks = $decoded;
+        $footerLinks = [];
+        if (!empty($map['footer_links_json'])) {
+            $decoded = json_decode((string) $map['footer_links_json'], true);
+            if (is_array($decoded)) {
+                $footerLinks = $decoded;
+            }
         }
+        // 在默认值上合并，避免遗漏 SEO 等扩展字段
+        $data['site'] = array_merge($data['site'], [
+            'name' => $map['site_name'] ?? $data['site']['name'],
+            'subtitle' => $map['site_subtitle'] ?? $data['site']['subtitle'],
+            'footer' => $map['site_footer'] ?? $data['site']['footer'],
+            'footer_extra' => $map['footer_extra'] ?? ($data['site']['footer_extra'] ?? ''),
+            'footer_show_apply' => $map['footer_show_apply'] ?? ($data['site']['footer_show_apply'] ?? '1'),
+            'footer_show_message' => $map['footer_show_message'] ?? ($data['site']['footer_show_message'] ?? '1'),
+            'footer_show_about' => $map['footer_show_about'] ?? ($data['site']['footer_show_about'] ?? '1'),
+            'footer_show_contact' => $map['footer_show_contact'] ?? ($data['site']['footer_show_contact'] ?? '1'),
+            'footer_links' => $footerLinks,
+            'show_friend_links' => $map['show_friend_links'] ?? ($data['site']['show_friend_links'] ?? '1'),
+            'enable_message' => $map['enable_message'] ?? ($data['site']['enable_message'] ?? '1'),
+            'about_html' => $map['about_html'] ?? ($data['site']['about_html'] ?? ''),
+            'contact_html' => $map['contact_html'] ?? ($data['site']['contact_html'] ?? ''),
+            'contact_email' => $map['contact_email'] ?? ($data['site']['contact_email'] ?? ''),
+            'hero_bg' => $map['hero_bg'] ?? ($data['site']['hero_bg'] ?? ''),
+            'seo_title' => $map['seo_title'] ?? ($data['site']['seo_title'] ?? ''),
+            'seo_keywords' => $map['seo_keywords'] ?? ($data['site']['seo_keywords'] ?? ''),
+            'seo_description' => $map['seo_description'] ?? ($data['site']['seo_description'] ?? ''),
+            'seo_author' => $map['seo_author'] ?? ($data['site']['seo_author'] ?? ''),
+            'seo_robots' => site_seo_normalize_robots($map['seo_robots'] ?? ($data['site']['seo_robots'] ?? 'index,follow')),
+            'seo_canonical' => $map['seo_canonical'] ?? ($data['site']['seo_canonical'] ?? ''),
+            'seo_og_image' => $map['seo_og_image'] ?? ($data['site']['seo_og_image'] ?? ''),
+            'seo_baidu_verify' => $map['seo_baidu_verify'] ?? ($data['site']['seo_baidu_verify'] ?? ''),
+            'seo_google_verify' => $map['seo_google_verify'] ?? ($data['site']['seo_google_verify'] ?? ''),
+            'seo_bing_verify' => $map['seo_bing_verify'] ?? ($data['site']['seo_bing_verify'] ?? ''),
+            'seo_head_html' => $map['seo_head_html'] ?? ($data['site']['seo_head_html'] ?? ''),
+        ]);
+
+        // engines
+        $engines = $pdo->query('SELECT id, slug, name, url, sort_order FROM engines ORDER BY sort_order ASC, id ASC')->fetchAll();
+        $data['engines'] = array_map(static function ($r) {
+            return [
+                'db_id' => (int) $r['id'],
+                'id' => $r['slug'] !== '' ? $r['slug'] : ('e' . $r['id']),
+                'name' => $r['name'],
+                'url' => $r['url'],
+            ];
+        }, $engines);
+
+        // shortcuts
+        $shortcuts = $pdo->query('SELECT id, name, url, type, sort_order FROM shortcuts ORDER BY sort_order ASC, id ASC')->fetchAll();
+        $data['shortcuts'] = array_map(static function ($r) {
+            return [
+                'db_id' => (int) $r['id'],
+                'name' => $r['name'],
+                'url' => $r['url'],
+                'type' => $r['type'] ?: 'search',
+            ];
+        }, $shortcuts);
+
+        // sites
+        $sites = $pdo->query('SELECT id, name, description, url, tag, sort_order FROM sites ORDER BY sort_order ASC, id ASC')->fetchAll();
+        $data['sites'] = array_map(static function ($r) {
+            return [
+                'db_id' => (int) $r['id'],
+                'name' => $r['name'],
+                'desc' => $r['description'],
+                'url' => $r['url'],
+                'tag' => $r['tag'],
+            ];
+        }, $sites);
+
+        // projects
+        $projects = $pdo->query('SELECT id, name, description, url, tag, sort_order FROM projects ORDER BY sort_order ASC, id ASC')->fetchAll();
+        $data['projects'] = array_map(static function ($r) {
+            return [
+                'db_id' => (int) $r['id'],
+                'id' => 'p' . $r['id'],
+                'name' => $r['name'],
+                'desc' => $r['description'],
+                'url' => $r['url'],
+                'tag' => $r['tag'] ?? '',
+            ];
+        }, $projects);
+    } catch (Throwable $e) {
+        return load_content_from_json();
     }
-    // 在默认值上合并，避免遗漏 SEO 等扩展字段
-    $data['site'] = array_merge($data['site'], [
-        'name' => $map['site_name'] ?? $data['site']['name'],
-        'subtitle' => $map['site_subtitle'] ?? $data['site']['subtitle'],
-        'footer' => $map['site_footer'] ?? $data['site']['footer'],
-        'footer_extra' => $map['footer_extra'] ?? ($data['site']['footer_extra'] ?? ''),
-        'footer_show_apply' => $map['footer_show_apply'] ?? ($data['site']['footer_show_apply'] ?? '1'),
-        'footer_show_message' => $map['footer_show_message'] ?? ($data['site']['footer_show_message'] ?? '1'),
-        'footer_show_about' => $map['footer_show_about'] ?? ($data['site']['footer_show_about'] ?? '1'),
-        'footer_show_contact' => $map['footer_show_contact'] ?? ($data['site']['footer_show_contact'] ?? '1'),
-        'footer_links' => $footerLinks,
-        'show_friend_links' => $map['show_friend_links'] ?? ($data['site']['show_friend_links'] ?? '1'),
-        'enable_message' => $map['enable_message'] ?? ($data['site']['enable_message'] ?? '1'),
-        'about_html' => $map['about_html'] ?? ($data['site']['about_html'] ?? ''),
-        'contact_html' => $map['contact_html'] ?? ($data['site']['contact_html'] ?? ''),
-        'contact_email' => $map['contact_email'] ?? ($data['site']['contact_email'] ?? ''),
-        'hero_bg' => $map['hero_bg'] ?? ($data['site']['hero_bg'] ?? ''),
-        'seo_title' => $map['seo_title'] ?? ($data['site']['seo_title'] ?? ''),
-        'seo_keywords' => $map['seo_keywords'] ?? ($data['site']['seo_keywords'] ?? ''),
-        'seo_description' => $map['seo_description'] ?? ($data['site']['seo_description'] ?? ''),
-        'seo_author' => $map['seo_author'] ?? ($data['site']['seo_author'] ?? ''),
-        'seo_robots' => site_seo_normalize_robots($map['seo_robots'] ?? ($data['site']['seo_robots'] ?? 'index,follow')),
-        'seo_canonical' => $map['seo_canonical'] ?? ($data['site']['seo_canonical'] ?? ''),
-        'seo_og_image' => $map['seo_og_image'] ?? ($data['site']['seo_og_image'] ?? ''),
-        'seo_baidu_verify' => $map['seo_baidu_verify'] ?? ($data['site']['seo_baidu_verify'] ?? ''),
-        'seo_google_verify' => $map['seo_google_verify'] ?? ($data['site']['seo_google_verify'] ?? ''),
-        'seo_bing_verify' => $map['seo_bing_verify'] ?? ($data['site']['seo_bing_verify'] ?? ''),
-        'seo_head_html' => $map['seo_head_html'] ?? ($data['site']['seo_head_html'] ?? ''),
-    ]);
-
-    // engines
-    $engines = $pdo->query('SELECT id, slug, name, url, sort_order FROM engines ORDER BY sort_order ASC, id ASC')->fetchAll();
-    $data['engines'] = array_map(static function ($r) {
-        return [
-            'db_id' => (int) $r['id'],
-            'id' => $r['slug'] !== '' ? $r['slug'] : ('e' . $r['id']),
-            'name' => $r['name'],
-            'url' => $r['url'],
-        ];
-    }, $engines);
-
-    // shortcuts
-    $shortcuts = $pdo->query('SELECT id, name, url, type, sort_order FROM shortcuts ORDER BY sort_order ASC, id ASC')->fetchAll();
-    $data['shortcuts'] = array_map(static function ($r) {
-        return [
-            'db_id' => (int) $r['id'],
-            'name' => $r['name'],
-            'url' => $r['url'],
-            'type' => $r['type'] ?: 'search',
-        ];
-    }, $shortcuts);
-
-    // sites
-    $sites = $pdo->query('SELECT id, name, description, url, tag, sort_order FROM sites ORDER BY sort_order ASC, id ASC')->fetchAll();
-    $data['sites'] = array_map(static function ($r) {
-        return [
-            'db_id' => (int) $r['id'],
-            'name' => $r['name'],
-            'desc' => $r['description'],
-            'url' => $r['url'],
-            'tag' => $r['tag'],
-        ];
-    }, $sites);
-
-    // projects
-    $projects = $pdo->query('SELECT id, name, description, url, tag, sort_order FROM projects ORDER BY sort_order ASC, id ASC')->fetchAll();
-    $data['projects'] = array_map(static function ($r) {
-        return [
-            'db_id' => (int) $r['id'],
-            'id' => 'p' . $r['id'],
-            'name' => $r['name'],
-            'desc' => $r['description'],
-            'url' => $r['url'],
-            'tag' => $r['tag'] ?? '',
-        ];
-    }, $projects);
 
     // tools
     try {
@@ -540,7 +544,7 @@ function save_content(array $data)
         if (isset($pdo) && $pdo instanceof PDO && $pdo->inTransaction()) {
             $pdo->rollBack();
         }
-        return save_content_to_json($data);
+        return false;
     }
 }
 
@@ -564,8 +568,28 @@ function save_message(array $row)
     ];
 
     try {
+        $pdo = db();
+    } catch (Throwable $e) {
+        $file = ROOT_PATH . '/data/messages.json';
+        $dir = dirname($file);
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0755, true);
+        }
+        $list = [];
+        if (is_file($file)) {
+            $tmp = json_decode(file_get_contents($file), true);
+            if (is_array($tmp)) {
+                $list = $tmp;
+            }
+        }
+        $payload['id'] = 'm' . time() . mt_rand(100, 999);
+        $list[] = $payload;
+        return @file_put_contents($file, json_encode($list, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) . "\n", LOCK_EX) !== false;
+    }
+
+    try {
         ensure_extra_tables();
-        $stmt = db()->prepare(
+        $stmt = $pdo->prepare(
             'INSERT INTO messages (type, name, contact, email, website, content, status, ip, created_at)
              VALUES (?,?,?,?,?,?,?,?,?)'
         );
@@ -581,17 +605,7 @@ function save_message(array $row)
             $payload['created_at'],
         ]);
     } catch (Throwable $e) {
-        $file = ROOT_PATH . '/data/messages.json';
-        $list = [];
-        if (is_file($file)) {
-            $tmp = json_decode(file_get_contents($file), true);
-            if (is_array($tmp)) {
-                $list = $tmp;
-            }
-        }
-        $payload['id'] = 'm' . time() . mt_rand(100, 999);
-        $list[] = $payload;
-        return @file_put_contents($file, json_encode($list, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) . "\n", LOCK_EX) !== false;
+        return false;
     }
 }
 
