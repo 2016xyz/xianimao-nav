@@ -100,6 +100,58 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         redirect('hotboards.php#linuxdo-auth');
     }
 
+    // —— Linux.do OAuth 令牌维护 ——
+    if ($action === 'refresh_linuxdo_token') {
+        $ref = oauth_linuxdo_refresh_token();
+        if (!empty($ref['ok'])) {
+            admin_log_write('hotboards_linuxdo_token_refresh', '刷新 Linux.do OAuth access_token', [
+                'module' => 'hotboards',
+                'level' => 'success',
+            ]);
+            flash_set('success', $ref['message'] ?? '令牌已刷新');
+        } else {
+            admin_log_write('hotboards_linuxdo_token_refresh_fail', '刷新 Linux.do OAuth 令牌失败', [
+                'module' => 'hotboards',
+                'level' => 'error',
+                'detail' => ['message' => $ref['message'] ?? ''],
+            ]);
+            flash_set('error', $ref['message'] ?? '刷新令牌失败，请重新授权');
+        }
+        redirect('hotboards.php#linuxdo-auth');
+    }
+
+    if ($action === 'sync_linuxdo_profile') {
+        $sync = oauth_linuxdo_sync_profile();
+        if (!empty($sync['ok'])) {
+            admin_log_write('hotboards_linuxdo_sync', '同步 Linux.do OAuth 用户资料', [
+                'module' => 'hotboards',
+                'level' => 'success',
+                'detail' => ['username' => $sync['username'] ?? ''],
+            ]);
+            flash_set('success', $sync['message'] ?? '已同步用户资料');
+        } else {
+            admin_log_write('hotboards_linuxdo_sync_fail', '同步 Linux.do 资料失败', [
+                'module' => 'hotboards',
+                'level' => 'error',
+                'detail' => ['message' => $sync['message'] ?? ''],
+            ]);
+            flash_set('error', $sync['message'] ?? '同步失败');
+        }
+        redirect('hotboards.php#linuxdo-auth');
+    }
+
+    if ($action === 'revoke_linuxdo_oauth') {
+        $clearApi = !empty($_POST['clear_api']);
+        $rev = oauth_linuxdo_revoke($clearApi);
+        admin_log_write('hotboards_linuxdo_revoke', '解绑 Linux.do OAuth' . ($clearApi ? '并清除 API 凭证' : ''), [
+            'module' => 'hotboards',
+            'level' => 'warning',
+            'detail' => ['clear_api' => $clearApi],
+        ]);
+        flash_set('success', $rev['message'] ?? '已解除 OAuth 绑定');
+        redirect('hotboards.php#linuxdo-auth');
+    }
+
     // —— 吾爱 ——
     if ($action === 'clear_52pojie') {
         hot_52pojie_save_credentials(['clear' => 1]);
@@ -208,8 +260,12 @@ if (!is_array($lastFetch)) {
     $lastFetch = null;
 }
 $oauthApp = oauth_linuxdo_app_config();
-$oauthBoundUser = (string) hot_setting_get('linuxdo_oauth_username', '');
-$oauthBoundAt = (string) hot_setting_get('linuxdo_oauth_bound_at', '');
+$oauthStatus = oauth_linuxdo_status();
+$oauthBoundUser = (string) ($oauthStatus['username'] !== '' ? $oauthStatus['username'] : hot_setting_get('linuxdo_oauth_username', ''));
+$oauthBoundAt = (string) ($oauthStatus['bound_at'] !== '' ? $oauthStatus['bound_at'] : hot_setting_get('linuxdo_oauth_bound_at', ''));
+$hasOAuthToken = !empty($oauthStatus['has_token']);
+$oauthTokenValid = !empty($oauthStatus['token_valid']);
+$authReady = !empty($oauthStatus['auth_ready']) || $hasCookie || $hasApi;
 $callbackHint = oauth_linuxdo_callback_url();
 
 $cred52 = hot_52pojie_credentials();
@@ -299,7 +355,7 @@ admin_layout_start('今日热榜', 'hotboards');
                                 <div class="cell-muted"><?php echo e($meta['name']); ?></div>
                                 <?php if ($id === 'linuxdo'): ?>
                                     <div class="cell-muted" style="margin-top:4px;">
-                                        <?php if ($hasCookie || $hasApi): ?>
+                                        <?php if ($authReady): ?>
                                             <span class="tag" style="background:#ecfdf5;color:#047857;">已配置登录态</span>
                                         <?php else: ?>
                                             <span class="tag">公开模式</span>
@@ -331,28 +387,43 @@ admin_layout_start('今日热榜', 'hotboards');
         <div>
             <h2>Linux.do · OAuth 授权</h2>
             <p class="muted">
-                使用官方 <a href="https://connect.linux.do/" target="_blank" rel="noopener">Linux DO Connect</a> OAuth2 授权，
-                自动获取用户 <code>api_key</code> 用于拉取登录后热榜。凭证仅存服务端。
+                使用官方 <a href="https://connect.linux.do/" target="_blank" rel="noopener">Linux DO Connect</a> OAuth2 + <strong>PKCE</strong> 授权；
+                持久化 <code>access_token</code> / <code>refresh_token</code>，过期自动刷新；
+                有 <code>api_key</code> 时优先，否则以 Bearer 拉取热榜。凭证仅存服务端密钥块。
             </p>
         </div>
     </div>
 
-    <div class="switch-bar" style="margin-bottom:14px;flex-wrap:wrap;gap:10px;">
+    <div class="switch-bar oauth-status-bar" style="margin-bottom:14px;flex-wrap:wrap;gap:10px;">
         <span>
-            凭证：
-            <?php if ($hasApi || $hasCookie): ?>
+            鉴权：
+            <?php if ($authReady): ?>
                 <strong style="color:#047857;">已就绪</strong>
-                <?php if ($hasApi): ?> API Key<?php endif; ?>
-                <?php if ($hasCookie): ?> Cookie<?php endif; ?>
+                <?php if ($hasApi): ?><span class="tag" style="background:#ecfdf5;color:#047857;">API Key</span><?php endif; ?>
+                <?php if ($hasCookie): ?><span class="tag" style="background:#ecfdf5;color:#047857;">Cookie</span><?php endif; ?>
+                <?php if ($hasOAuthToken): ?>
+                    <span class="tag" style="background:<?php echo $oauthTokenValid ? '#ecfdf5' : '#fff7ed'; ?>;color:<?php echo $oauthTokenValid ? '#047857' : '#c2410c'; ?>;">
+                        OAuth <?php echo $oauthTokenValid ? '有效' : '已过期/待刷新'; ?>
+                    </span>
+                <?php endif; ?>
             <?php else: ?>
                 <strong style="color:#b45309;">未授权</strong>
             <?php endif; ?>
         </span>
+        <?php if (!empty($oauthStatus['pkce'])): ?>
+            <span class="tag" style="background:#eff6ff;color:#1d4ed8;">PKCE S256</span>
+        <?php endif; ?>
         <?php if ($oauthBoundUser !== ''): ?>
-            <span class="muted">OAuth 用户：<?php echo e($oauthBoundUser); ?><?php if ($oauthBoundAt !== ''): ?> · <?php echo e($oauthBoundAt); ?><?php endif; ?></span>
+            <span class="muted">用户：<?php echo e($oauthBoundUser); ?><?php if ($oauthBoundAt !== ''): ?> · 绑定 <?php echo e($oauthBoundAt); ?><?php endif; ?></span>
+        <?php endif; ?>
+        <?php if (!empty($oauthStatus['expires_at_text'])): ?>
+            <span class="muted">令牌到期：<?php echo e($oauthStatus['expires_at_text']); ?></span>
+        <?php endif; ?>
+        <?php if (!empty($oauthStatus['has_refresh'])): ?>
+            <span class="muted">含 refresh_token</span>
         <?php endif; ?>
         <?php if ($authUpdated !== ''): ?>
-            <span class="muted">更新于 <?php echo e($authUpdated); ?></span>
+            <span class="muted">凭证更新于 <?php echo e($authUpdated); ?></span>
         <?php endif; ?>
         <?php if ($lastFetch): ?>
             <span class="muted">
@@ -360,6 +431,9 @@ admin_layout_start('今日热榜', 'hotboards');
                 · <?php echo !empty($lastFetch['auth']) ? '登录态' : '公开'; ?>
                 · <?php echo (int) ($lastFetch['count'] ?? 0); ?> 条
             </span>
+        <?php endif; ?>
+        <?php if (!empty($oauthStatus['last_error'])): ?>
+            <span class="muted" style="color:#b91c1c;">上次错误：<?php echo e(mb_substr_admin($oauthStatus['last_error'], 0, 80)); ?></span>
         <?php endif; ?>
     </div>
 
@@ -382,6 +456,7 @@ admin_layout_start('今日热榜', 'hotboards');
         <p class="muted" style="margin:0 0 12px;font-size:0.88rem;line-height:1.6;">
             在 <a href="https://connect.linux.do/" target="_blank" rel="noopener">connect.linux.do</a> → 我的应用接入 → 申请新接入，
             回调填：<code><?php echo e($callbackHint); ?></code>
+            （授权会话 15 分钟内有效，支持 PKCE；对方不支持时自动回退）
         </p>
         <div class="form-actions">
             <button type="submit" class="btn btn-secondary">保存应用配置</button>
@@ -389,7 +464,7 @@ admin_layout_start('今日热榜', 'hotboards');
     </form>
 
     <h3 class="auth-subhead">2. 一键 OAuth 授权</h3>
-    <div class="form-actions" style="flex-wrap:wrap;gap:8px;margin-bottom:16px;">
+    <div class="form-actions" style="flex-wrap:wrap;gap:8px;margin-bottom:12px;">
         <?php if (oauth_linuxdo_app_ready()): ?>
             <a class="btn btn-primary" href="oauth_linuxdo.php">使用 Linux.do 账号授权</a>
         <?php else: ?>
@@ -405,11 +480,36 @@ admin_layout_start('今日热榜', 'hotboards');
             <input type="hidden" name="action" value="refresh_linuxdo">
             <button type="submit" class="btn btn-secondary">刷新前台缓存</button>
         </form>
-        <form method="post" style="display:inline;" onsubmit="return confirm('确定清除 Linux.do 全部登录凭证？');">
+    </div>
+
+    <h3 class="auth-subhead">3. 令牌与绑定管理</h3>
+    <div class="form-actions" style="flex-wrap:wrap;gap:8px;margin-bottom:16px;">
+        <form method="post" style="display:inline;">
+            <?php echo csrf_field(); ?>
+            <input type="hidden" name="action" value="refresh_linuxdo_token">
+            <button type="submit" class="btn btn-secondary" <?php echo empty($oauthStatus['has_refresh']) && !$hasOAuthToken ? 'disabled title="无 refresh_token"' : ''; ?>>刷新 access_token</button>
+        </form>
+        <form method="post" style="display:inline;">
+            <?php echo csrf_field(); ?>
+            <input type="hidden" name="action" value="sync_linuxdo_profile">
+            <button type="submit" class="btn btn-secondary" <?php echo !$hasOAuthToken ? 'disabled title="请先完成 OAuth"' : ''; ?>>同步用户资料</button>
+        </form>
+        <form method="post" style="display:inline;" onsubmit="return confirm('仅清除 OAuth 令牌，保留已保存的 API Key / Cookie？');">
+            <?php echo csrf_field(); ?>
+            <input type="hidden" name="action" value="revoke_linuxdo_oauth">
+            <button type="submit" class="btn btn-secondary" <?php echo !$hasOAuthToken ? 'disabled' : ''; ?>>仅解绑 OAuth</button>
+        </form>
+        <form method="post" style="display:inline;" onsubmit="return confirm('确定解绑 OAuth 并清除全部 Linux.do 凭证（含 API Key / Cookie）？');">
+            <?php echo csrf_field(); ?>
+            <input type="hidden" name="action" value="revoke_linuxdo_oauth">
+            <input type="hidden" name="clear_api" value="1">
+            <button type="submit" class="btn btn-danger">解绑并清除全部凭证</button>
+        </form>
+        <form method="post" style="display:inline;" onsubmit="return confirm('确定清除 Linux.do 手动登录凭证（不影响 OAuth 令牌）？');">
             <?php echo csrf_field(); ?>
             <input type="hidden" name="action" value="save_linuxdo">
             <input type="hidden" name="clear_linuxdo" value="1">
-            <button type="submit" class="btn btn-danger">清除凭证</button>
+            <button type="submit" class="btn btn-danger">清除手动凭证</button>
         </form>
     </div>
 
@@ -507,6 +607,7 @@ admin_layout_start('今日热榜', 'hotboards');
     <div class="muted" style="margin-top:16px;line-height:1.7;font-size:0.9rem;">
         <strong>流程：</strong>
         点击「开始 OAuth 授权」→ 登录吾爱 → 粘贴 Cookie 完成授权 → 服务端持久化 → 热榜抓取自动带 Cookie。
+        授权会话 <strong>15 分钟</strong>内有效（state 防伪）；超时请重新发起。
     </div>
 </div>
 

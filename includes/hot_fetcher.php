@@ -466,7 +466,44 @@ function hot_linuxdo_write_db(array $payload)
 }
 
 /**
- * 是否已配置 Linux.do 登录凭证
+ * 确保已加载 OAuth 模块（避免与 oauth_providers 循环依赖时重复 require）
+ */
+function hot_linuxdo_load_oauth()
+{
+    if (function_exists('oauth_linuxdo_ensure_access_token')) {
+        return true;
+    }
+    $f = __DIR__ . '/oauth_providers.php';
+    if (is_file($f)) {
+        require_once $f;
+    }
+    return function_exists('oauth_linuxdo_ensure_access_token');
+}
+
+/**
+ * 是否存在可用的 OAuth Bearer（有效 access_token 或可刷新）
+ */
+function hot_linuxdo_oauth_bearer_ready()
+{
+    if (!hot_linuxdo_load_oauth()) {
+        return false;
+    }
+    if (!function_exists('oauth_linuxdo_token_get') || !function_exists('oauth_linuxdo_token_valid')) {
+        return false;
+    }
+    $token = oauth_linuxdo_token_get();
+    if (oauth_linuxdo_token_valid($token)) {
+        return true;
+    }
+    if (($token['refresh_token'] ?? '') !== '') {
+        return true;
+    }
+    // 无过期时间的 access_token 仍可尝试
+    return ($token['access_token'] ?? '') !== '' && (int) ($token['expires_at'] ?? 0) === 0;
+}
+
+/**
+ * 是否已配置 Linux.do 登录凭证（Cookie / API Key / OAuth Bearer）
  */
 function hot_linuxdo_has_auth()
 {
@@ -478,9 +515,9 @@ function hot_linuxdo_has_auth()
         return $c['cookie'] !== '';
     }
     if ($c['mode'] === 'api') {
-        return $c['api_key'] !== '';
+        return $c['api_key'] !== '' || hot_linuxdo_oauth_bearer_ready();
     }
-    return $c['cookie'] !== '' || $c['api_key'] !== '';
+    return $c['cookie'] !== '' || $c['api_key'] !== '' || hot_linuxdo_oauth_bearer_ready();
 }
 
 /**
@@ -553,6 +590,7 @@ function hot_linuxdo_save_credentials(array $input)
 
 /**
  * 为 Discourse 请求附加鉴权头
+ * 优先级（auto）：Cookie → Api-Key → OAuth Bearer（过期自动 refresh）
  */
 function hot_discourse_auth_headers(array $baseHeaders = [], $forceMode = null)
 {
@@ -562,16 +600,23 @@ function hot_discourse_auth_headers(array $baseHeaders = [], $forceMode = null)
 
     $useCookie = false;
     $useApi = false;
+    $useBearer = false;
     if ($mode === 'cookie') {
         $useCookie = $cred['cookie'] !== '';
     } elseif ($mode === 'api') {
         $useApi = $cred['api_key'] !== '';
+        // 无 API Key 时用 OAuth Bearer 兜底
+        if (!$useApi && hot_linuxdo_oauth_bearer_ready()) {
+            $useBearer = true;
+        }
     } elseif ($mode === 'auto') {
-        // 优先 Cookie（更接近浏览器登录后可见内容），其次 API Key
+        // 优先 Cookie（更接近浏览器登录后可见内容），其次 API Key，再 OAuth Bearer
         if ($cred['cookie'] !== '') {
             $useCookie = true;
         } elseif ($cred['api_key'] !== '') {
             $useApi = true;
+        } elseif (hot_linuxdo_oauth_bearer_ready()) {
+            $useBearer = true;
         }
     }
 
@@ -581,6 +626,20 @@ function hot_discourse_auth_headers(array $baseHeaders = [], $forceMode = null)
     if ($useApi) {
         $headers[] = 'Api-Key: ' . $cred['api_key'];
         $headers[] = 'Api-Username: ' . ($cred['api_username'] !== '' ? $cred['api_username'] : 'system');
+    }
+    if ($useBearer && hot_linuxdo_load_oauth()) {
+        $ens = oauth_linuxdo_ensure_access_token();
+        if (!empty($ens['ok']) && ($ens['access_token'] ?? '') !== '') {
+            $headers[] = 'Authorization: Bearer ' . $ens['access_token'];
+            // Discourse 部分接口同时识别 Api-Username
+            $uname = trim((string) ($cred['api_username'] ?? ''));
+            if ($uname === '' || $uname === 'system') {
+                $uname = (string) hot_setting_get('linuxdo_oauth_username', '');
+            }
+            if ($uname !== '') {
+                $headers[] = 'Api-Username: ' . $uname;
+            }
+        }
     }
     return $headers;
 }
@@ -593,8 +652,25 @@ function hot_linuxdo_test_auth()
 {
     $site = 'https://linux.do';
     $cred = hot_linuxdo_credentials();
-    if ($cred['cookie'] === '' && $cred['api_key'] === '') {
-        return ['ok' => false, 'message' => '尚未配置 Cookie 或 API Key'];
+    $hasBearer = hot_linuxdo_oauth_bearer_ready();
+    if ($cred['cookie'] === '' && $cred['api_key'] === '' && !$hasBearer) {
+        return ['ok' => false, 'message' => '尚未配置 Cookie、API Key 或 OAuth 令牌，请先完成授权'];
+    }
+
+    // 预刷新 OAuth 令牌，确保 headers 带上有效 Bearer
+    $authVia = '';
+    if ($cred['cookie'] !== '' && ($cred['mode'] === 'auto' || $cred['mode'] === 'cookie')) {
+        $authVia = 'cookie';
+    } elseif ($cred['api_key'] !== '' && ($cred['mode'] === 'auto' || $cred['mode'] === 'api')) {
+        $authVia = 'api_key';
+    } elseif ($hasBearer) {
+        $authVia = 'oauth_bearer';
+        if (hot_linuxdo_load_oauth()) {
+            $ens = oauth_linuxdo_ensure_access_token();
+            if (empty($ens['ok'])) {
+                return ['ok' => false, 'message' => 'OAuth 令牌不可用：' . ($ens['message'] ?? '请重新授权')];
+            }
+        }
     }
 
     $headers = hot_discourse_auth_headers([
@@ -612,6 +688,9 @@ function hot_linuxdo_test_auth()
             $username = (string) ($sj['current_user']['username'] ?? $sj['username'] ?? '');
         }
     }
+    if ($username === '') {
+        $username = (string) hot_setting_get('linuxdo_oauth_username', '');
+    }
 
     // 2) 拉取热门/最新
     $endpoints = [
@@ -625,7 +704,6 @@ function hot_linuxdo_test_auth()
     foreach ($endpoints as $ep) {
         $body = hot_http_get($ep, 15, $headers);
         if (!$body || stripos($body, 'Just a moment') !== false) {
-            // 代理兜底（带 Cookie 的代理通常无效，但仍试 API 直连失败后）
             continue;
         }
         $json = hot_extract_discourse_json($body);
@@ -637,7 +715,7 @@ function hot_linuxdo_test_auth()
         }
     }
 
-    // 直连被 CF 拦时，若有 Cookie 仍可能失败；尝试 jina 仅公开数据
+    // 直连被 CF 拦时，尝试 jina 公开数据
     if ($topics === 0) {
         $proxy = 'https://r.jina.ai/https://linux.do/latest.json';
         $body = hot_http_get($proxy, 25, ['Accept: application/json,text/plain,*/*', 'X-Respond-With: text']);
@@ -646,25 +724,34 @@ function hot_linuxdo_test_auth()
             $topics = count($json['topic_list']['topics']);
             $via = 'proxy:jina (公开数据，未走登录态)';
             $sample = (string) ($json['topic_list']['topics'][0]['title'] ?? '');
-            if ($username === '') {
+            if ($username === '' || $authVia === '') {
                 return [
                     'ok' => true,
-                    'message' => '直连被拦截，已用公开代理拿到 ' . $topics . ' 条；登录态未生效（请检查 Cookie 是否完整/过期）',
-                    'username' => '',
+                    'message' => '直连被拦截，已用公开代理拿到 ' . $topics . ' 条；登录态未生效（请检查 Cookie/OAuth 是否有效）',
+                    'username' => $username,
                     'topics' => $topics,
                     'via' => $via,
                     'sample' => $sample,
                     'auth_active' => false,
+                    'auth_via' => $authVia,
                 ];
             }
         }
     }
 
     if ($topics > 0) {
-        $authActive = $username !== '';
-        $msg = $authActive
+        $authActive = $username !== '' || in_array($authVia, ['cookie', 'api_key', 'oauth_bearer'], true);
+        $viaLabel = [
+            'cookie' => 'Cookie',
+            'api_key' => 'API Key',
+            'oauth_bearer' => 'OAuth Bearer',
+        ][$authVia] ?? $authVia;
+        $msg = $username !== ''
             ? ('登录有效：用户 ' . $username . '，成功拉取 ' . $topics . ' 条')
-            : ('已拉取 ' . $topics . ' 条（未识别到 current_user，可能 Cookie 仅部分生效或站点限制 session 接口）');
+            : ('已拉取 ' . $topics . ' 条（未识别到 current_user）');
+        if ($viaLabel !== '') {
+            $msg .= ' · 鉴权：' . $viaLabel;
+        }
         return [
             'ok' => true,
             'message' => $msg,
@@ -673,14 +760,16 @@ function hot_linuxdo_test_auth()
             'via' => $via,
             'sample' => $sample,
             'auth_active' => $authActive,
+            'auth_via' => $authVia,
         ];
     }
 
     return [
         'ok' => false,
-        'message' => '无法访问 linux.do（Cloudflare 拦截或凭证无效）。请从已登录浏览器复制完整 Cookie 后重试。',
+        'message' => '无法访问 linux.do（Cloudflare 拦截或凭证无效）。请重新 OAuth 授权或更新 Cookie。',
         'username' => $username,
         'topics' => 0,
+        'auth_via' => $authVia,
     ];
 }
 
