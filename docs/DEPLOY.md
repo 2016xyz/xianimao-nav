@@ -13,7 +13,7 @@
 ## 2. 获取代码
 
 ```bash
-git clone https://github.com/<OWNER>/xianimao-nav.git
+git clone https://github.com/2016xyz/xianimao-nav.git
 cd xianimao-nav
 ```
 

@@ -2,9 +2,12 @@
 
 纯 PHP 实现的现代化网址导航门户：搜索聚合、真实热榜、实用工具、友链、申请收录 / 在线留言、完整后台与可视化安装向导。
 
+**仓库**：[https://github.com/2016xyz/xianimao-nav](https://github.com/2016xyz/xianimao-nav)（公开 · MIT）
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![PHP](https://img.shields.io/badge/PHP-%E2%89%A57.4-777BB4?logo=php&logoColor=white)](https://www.php.net/)
 [![MySQL](https://img.shields.io/badge/MySQL-5.7%2B%20%2F%208.0-4479A1?logo=mysql&logoColor=white)](https://www.mysql.com/)
+[![GitHub](https://img.shields.io/badge/GitHub-2016xyz%2Fxianimao--nav-181717?logo=github)](https://github.com/2016xyz/xianimao-nav)
 
 ---
 
@@ -59,7 +62,7 @@
 1. **克隆仓库**
 
 ```bash
-git clone https://github.com/<你的用户名>/xianimao-nav.git
+git clone https://github.com/2016xyz/xianimao-nav.git
 cd xianimao-nav
 ```
 
@@ -141,6 +144,17 @@ php scripts/review_verify.php
 
 可在本仓库 Issues / Wiki 中补充前台首页、热榜、后台登录与 SMTP 配置截图。
 
+## 文档索引
+
+| 文档 | 内容 |
+|------|------|
+| [README.md](README.md) | 功能概览、快速开始 |
+| [docs/DEPLOY.md](docs/DEPLOY.md) | 生产部署、Nginx/Apache、权限与运维 |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 目录、请求流、数据存储 |
+| [docs/SECURITY.md](docs/SECURITY.md) | CSP/CSRF/SQL/XSS 与密钥清单 |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | 贡献约定 |
+| [LICENSE](LICENSE) | MIT |
+
 ## 许可证
 
 本项目采用 [MIT License](LICENSE)。
@@ -149,3 +163,4 @@ php scripts/review_verify.php
 
 - 界面与交互参考了公开导航站的产品形态，实现为独立 PHP 代码库  
 - 热榜数据来自各平台公开页面 / 接口，请遵守对方服务条款与访问频率限制  
+- 作者站点：[www.2016xlx.cn](https://www.2016xlx.cn) · 联系：`i@2016xlx.cn`
