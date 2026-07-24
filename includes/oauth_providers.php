@@ -72,8 +72,8 @@ function oauth_http_post($url, array $fields, $timeout = 20, array $headers = []
             CURLOPT_FOLLOWLOCATION => true,
             CURLOPT_TIMEOUT => $timeout,
             CURLOPT_CONNECTTIMEOUT => 8,
-            CURLOPT_SSL_VERIFYPEER => false,
-            CURLOPT_SSL_VERIFYHOST => false,
+            CURLOPT_SSL_VERIFYPEER => function_exists('security_ssl_verify_peer') ? security_ssl_verify_peer() : true,
+            CURLOPT_SSL_VERIFYHOST => (function_exists('security_ssl_verify_peer') && !security_ssl_verify_peer()) ? 0 : 2,
             CURLOPT_POST => true,
             CURLOPT_POSTFIELDS => $body,
             CURLOPT_HTTPHEADER => $headers,
@@ -99,8 +99,8 @@ function oauth_http_post($url, array $fields, $timeout = 20, array $headers = []
             'ignore_errors' => true,
         ],
         'ssl' => [
-            'verify_peer' => false,
-            'verify_peer_name' => false,
+            'verify_peer' => function_exists('security_ssl_verify_peer') ? security_ssl_verify_peer() : true,
+            'verify_peer_name' => function_exists('security_ssl_verify_peer') ? security_ssl_verify_peer() : true,
         ],
     ]);
     $resp = @file_get_contents($url, false, $ctx);
@@ -187,12 +187,10 @@ function oauth_linuxdo_save_app(array $input)
         'updated_at' => date('Y-m-d H:i:s'),
     ];
 
-    // 主存储：数据库，不再写 config/linuxdo_oauth_app.json
+    // 主存储：仅 secret_linuxdo_oauth_app（不双写 client_secret 明文）
     $ok = secret_blob_set('linuxdo_oauth_app', $payload);
-    $ok = hot_setting_set('linuxdo_oauth_client_id', $clientId) && $ok;
-    $ok = hot_setting_set('linuxdo_oauth_client_secret', $clientSecret) && $ok;
-    $ok = hot_setting_set('linuxdo_oauth_redirect_uri', $redirect) && $ok;
     $ok = hot_setting_set('linuxdo_oauth_app_updated_at', $payload['updated_at']) && $ok;
+    $ok = hot_setting_set('linuxdo_oauth_has_app', ($payload['client_id'] !== '' && $payload['client_secret'] !== '') ? '1' : '0') && $ok;
     return $ok;
 }
 
@@ -366,12 +364,14 @@ function hot_52pojie_read_file($path)
 function hot_52pojie_credentials()
 {
     $candidates = [];
-    foreach ([hot_52pojie_secret_file(), hot_52pojie_secret_backup_file()] as $f) {
-        $c = hot_52pojie_read_file($f);
-        if ($c) {
-            $candidates[] = $c;
+
+    if (function_exists('secret_blob_get')) {
+        $blob = secret_blob_get('52pojie_auth');
+        if (is_array($blob) && $blob !== []) {
+            $candidates[] = hot_52pojie_normalize_cred($blob);
         }
     }
+
     $dbCookie = (string) hot_setting_get('52pojie_cookie', '');
     $dbUser = (string) hot_setting_get('52pojie_username', '');
     $dbMode = (string) hot_setting_get('52pojie_auth_mode', '');
@@ -387,6 +387,14 @@ function hot_52pojie_credentials()
         ]);
     }
 
+    // 旧文件只读迁移
+    foreach ([hot_52pojie_secret_file(), hot_52pojie_secret_backup_file()] as $f) {
+        $c = hot_52pojie_read_file($f);
+        if ($c) {
+            $candidates[] = $c;
+        }
+    }
+
     $best = hot_52pojie_normalize_cred([]);
     $bestScore = -1;
     foreach ($candidates as $c) {
@@ -398,32 +406,32 @@ function hot_52pojie_credentials()
             $best = $c;
         }
     }
+
+    if ($best['cookie'] !== '' && function_exists('secret_blob_get')) {
+        $cur = secret_blob_get('52pojie_auth');
+        $curCookie = is_array($cur) ? (string) ($cur['cookie'] ?? '') : '';
+        if ($curCookie === '') {
+            hot_52pojie_write_db($best);
+        }
+    }
+
     return $best;
 }
 
+/** @deprecated 密钥不再落盘，委托 DB */
 function hot_52pojie_write_files(array $payload)
 {
-    $payload = hot_52pojie_normalize_cred($payload);
-    $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) . "\n";
-    $ok = false;
-    foreach ([hot_52pojie_secret_file(), hot_52pojie_secret_backup_file()] as $file) {
-        $dir = dirname($file);
-        if (!is_dir($dir)) {
-            @mkdir($dir, 0755, true);
-        }
-        if (@file_put_contents($file, $json, LOCK_EX) !== false) {
-            $ok = true;
-            @chmod($file, 0600);
-        }
-    }
-    return $ok;
+    return hot_52pojie_write_db($payload);
 }
 
 function hot_52pojie_write_db(array $payload)
 {
     $payload = hot_52pojie_normalize_cred($payload);
     $ok = true;
-    $ok = hot_setting_set('52pojie_cookie', $payload['cookie']) && $ok;
+    if (function_exists('secret_blob_set')) {
+        $ok = secret_blob_set('52pojie_auth', $payload) && $ok;
+    }
+    // 非 Cookie 元数据；Cookie 仅 secret 块（避免 settings 表明文大 Cookie）
     $ok = hot_setting_set('52pojie_username', $payload['username']) && $ok;
     $ok = hot_setting_set('52pojie_auth_mode', $payload['mode']) && $ok;
     $ok = hot_setting_set('52pojie_auth_updated_at', $payload['updated_at']) && $ok;

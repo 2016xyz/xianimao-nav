@@ -268,10 +268,11 @@ function load_content()
     $data['projects'] = array_map(static function ($r) {
         return [
             'db_id' => (int) $r['id'],
+            'id' => 'p' . $r['id'],
             'name' => $r['name'],
             'desc' => $r['description'],
             'url' => $r['url'],
-            'tag' => $r['tag'],
+            'tag' => $r['tag'] ?? '',
         ];
     }, $projects);
 

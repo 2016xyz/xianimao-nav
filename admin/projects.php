@@ -82,8 +82,9 @@ $items = $data['projects'] ?? [];
             <table class="data-table">
                 <thead>
                     <tr>
-                        <th style="width:18%">名称</th>
-                        <th style="width:28%">链接</th>
+                        <th style="width:16%">名称</th>
+                        <th style="width:24%">链接</th>
+                        <th style="width:12%">标签</th>
                         <th>简介</th>
                         <th style="width:90px">操作</th>
                     </tr>
@@ -91,7 +92,7 @@ $items = $data['projects'] ?? [];
                 <tbody id="rows">
                     <?php if (empty($items)): ?>
                         <tr class="empty-row">
-                            <td colspan="4" class="muted" style="text-align:center;padding:28px;">
+                            <td colspan="5" class="muted" style="text-align:center;padding:28px;">
                                 暂无项目，点击右上角「添加项目」开始
                             </td>
                         </tr>
@@ -104,6 +105,9 @@ $items = $data['projects'] ?? [];
                             </td>
                             <td>
                                 <input type="url" name="url[]" value="<?php echo e($item['url'] ?? ''); ?>" required placeholder="https://github.com/...">
+                            </td>
+                            <td>
+                                <input type="text" name="tag[]" value="<?php echo e($item['tag'] ?? ''); ?>" placeholder="标签" maxlength="40">
                             </td>
                             <td>
                                 <input type="text" name="desc[]" value="<?php echo e($item['desc'] ?? ''); ?>" placeholder="项目简介">
@@ -132,6 +136,9 @@ $items = $data['projects'] ?? [];
         </td>
         <td>
             <input type="url" name="url[]" value="" required placeholder="https://github.com/...">
+        </td>
+        <td>
+            <input type="text" name="tag[]" value="" placeholder="标签" maxlength="40">
         </td>
         <td>
             <input type="text" name="desc[]" value="" placeholder="项目简介">

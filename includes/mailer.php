@@ -35,48 +35,40 @@ function smtp_config()
         'updated_at' => '',
     ];
 
-    // 1) 优先 secret_smtp JSON 块（DB）
+    // 1) 优先 secret_smtp JSON 块（DB 权威）
     $blob = secret_blob_get('smtp');
     if (!is_array($blob) || $blob === []) {
         // 2) 旧文件一次性迁移
         $blob = secret_blob_migrate_from_file('smtp', smtp_config_file());
     }
 
+    $hasBlob = is_array($blob) && $blob !== [];
     $cfg = $defaults;
-    if (is_array($blob)) {
+    if ($hasBlob) {
         foreach ($defaults as $k => $v) {
             if (array_key_exists($k, $blob)) {
                 $cfg[$k] = $blob[$k];
             }
         }
-    }
-
-    // 3) 兼容历史分散 key（smtp_host / smtp_pass …）
-    $map = [
-        'enabled' => 'smtp_enabled',
-        'host' => 'smtp_host',
-        'port' => 'smtp_port',
-        'encryption' => 'smtp_encryption',
-        'user' => 'smtp_user',
-        'pass' => 'smtp_pass',
-        'from_email' => 'smtp_from_email',
-        'from_name' => 'smtp_from_name',
-        'login_email_verify' => 'login_email_verify',
-        'login_email' => 'login_email',
-        'updated_at' => 'smtp_updated_at',
-    ];
-    foreach ($map as $field => $skey) {
-        $dbv = setting_get($skey, '');
-        if ($dbv !== '') {
-            // blob 已有非空则保留 blob；分散 key 补缺或补密码
-            if ($field === 'pass' || (string) $cfg[$field] === '' || (string) $cfg[$field] === (string) $defaults[$field]) {
-                if ($field === 'enabled' || $field === 'login_email_verify' || (string) $cfg[$field] === '') {
-                    $cfg[$field] = $dbv;
-                } elseif ($field === 'pass' && $cfg['pass'] === '') {
-                    $cfg['pass'] = $dbv;
-                } elseif ($field !== 'pass' && (string) $cfg[$field] === (string) $defaults[$field] && $dbv !== '') {
-                    $cfg[$field] = $dbv;
-                }
+    } else {
+        // 3) 仅当无 blob 时回退历史分散 key（避免 blob 中 enabled=0 被旧 key=1 覆盖）
+        $map = [
+            'enabled' => 'smtp_enabled',
+            'host' => 'smtp_host',
+            'port' => 'smtp_port',
+            'encryption' => 'smtp_encryption',
+            'user' => 'smtp_user',
+            'pass' => 'smtp_pass',
+            'from_email' => 'smtp_from_email',
+            'from_name' => 'smtp_from_name',
+            'login_email_verify' => 'login_email_verify',
+            'login_email' => 'login_email',
+            'updated_at' => 'smtp_updated_at',
+        ];
+        foreach ($map as $field => $skey) {
+            $dbv = setting_get($skey, '');
+            if ($dbv !== '') {
+                $cfg[$field] = $dbv;
             }
         }
     }
@@ -116,25 +108,13 @@ function smtp_save_config(array $input)
         $cfg['port'] = 465;
     }
 
-    // 主存储：数据库 secret_smtp + 兼容分散 key
+    // 主存储：仅 secret_smtp（不再双写明文 smtp_pass 等分散密钥键）
+    // 非敏感开关仍写分散 key 供旧逻辑/迁移探测（不含密码）
     $ok = secret_blob_set('smtp', $cfg);
-    foreach ([
-        'smtp_enabled' => $cfg['enabled'],
-        'smtp_host' => $cfg['host'],
-        'smtp_port' => (string) $cfg['port'],
-        'smtp_encryption' => $cfg['encryption'],
-        'smtp_user' => $cfg['user'],
-        'smtp_pass' => $cfg['pass'],
-        'smtp_from_email' => $cfg['from_email'],
-        'smtp_from_name' => $cfg['from_name'],
-        'login_email_verify' => $cfg['login_email_verify'],
-        'login_email' => $cfg['login_email'],
-        'smtp_updated_at' => $cfg['updated_at'],
-    ] as $k => $v) {
-        $ok = setting_set($k, $v) && $ok;
-    }
-
-    // 不再写入 config/smtp.json（避免密钥落盘）；若旧文件存在可保留只读
+    $ok = setting_set('smtp_enabled', $cfg['enabled']) && $ok;
+    $ok = setting_set('login_email_verify', $cfg['login_email_verify']) && $ok;
+    $ok = setting_set('login_email', $cfg['login_email']) && $ok;
+    $ok = setting_set('smtp_updated_at', $cfg['updated_at']) && $ok;
     return $ok;
 }
 
@@ -275,9 +255,9 @@ function mailer_send($to, $subject, $htmlBody, $textBody = '')
             STREAM_CLIENT_CONNECT,
             stream_context_create([
                 'ssl' => [
-                    'verify_peer' => false,
-                    'verify_peer_name' => false,
-                    'allow_self_signed' => true,
+                    'verify_peer' => function_exists('security_ssl_verify_peer') ? security_ssl_verify_peer() : true,
+                    'verify_peer_name' => function_exists('security_ssl_verify_peer') ? security_ssl_verify_peer() : true,
+                    'allow_self_signed' => function_exists('security_ssl_verify_peer') ? !security_ssl_verify_peer() : false,
                 ],
             ])
         );

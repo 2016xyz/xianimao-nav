@@ -111,8 +111,8 @@ function ai_http($method, $url, $apiKey, $jsonBody = null, $timeout = 45)
             CURLOPT_FOLLOWLOCATION => true,
             CURLOPT_TIMEOUT => $timeout,
             CURLOPT_CONNECTTIMEOUT => 12,
-            CURLOPT_SSL_VERIFYPEER => false,
-            CURLOPT_SSL_VERIFYHOST => false,
+            CURLOPT_SSL_VERIFYPEER => function_exists('security_ssl_verify_peer') ? security_ssl_verify_peer() : true,
+            CURLOPT_SSL_VERIFYHOST => (function_exists('security_ssl_verify_peer') && !security_ssl_verify_peer()) ? 0 : 2,
             CURLOPT_CUSTOMREQUEST => strtoupper($method),
             CURLOPT_HTTPHEADER => $headers,
             CURLOPT_USERAGENT => 'NavSite-AI/1.0',
@@ -140,7 +140,10 @@ function ai_http($method, $url, $apiKey, $jsonBody = null, $timeout = 45)
             'timeout' => $timeout,
             'ignore_errors' => true,
         ],
-        'ssl' => ['verify_peer' => false, 'verify_peer_name' => false],
+        'ssl' => [
+            'verify_peer' => function_exists('security_ssl_verify_peer') ? security_ssl_verify_peer() : true,
+            'verify_peer_name' => function_exists('security_ssl_verify_peer') ? security_ssl_verify_peer() : true,
+        ],
     ]);
     $body = @file_get_contents($url, false, $ctx);
     $code = 0;

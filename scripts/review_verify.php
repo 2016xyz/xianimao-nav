@@ -80,6 +80,34 @@ assert_true(isset($seo['keywords'], $seo['description'], $seo['robots']), 'seo m
 assert_true(array_key_exists('seo_title', $d['site'] ?? []), 'site has seo_title field');
 assert_true(array_key_exists('seo_description', $d['site'] ?? []), 'site has seo_description field');
 
+// 密钥 / settings 统一 API（无重复定义）
+assert_true(function_exists('setting_get') && function_exists('setting_set'), 'setting_get/set exist once');
+assert_true(function_exists('secret_blob_get') && function_exists('secret_blob_set'), 'secret_blob helpers');
+assert_true(function_exists('security_ssl_verify_peer'), 'ssl verify helper');
+assert_true(security_ssl_verify_peer() === true, 'ssl verify peer defaults on');
+
+// HTML 消毒：去 style / 危险协议 / 约束 href
+$dirty = '<p onclick="alert(1)" style="color:red">x</p><a href="javascript:alert(1)">y</a><a href="https://example.com" target="_blank">z</a>';
+$clean = security_sanitize_html($dirty);
+assert_true(strpos($clean, 'onclick') === false, 'sanitize strips onclick');
+assert_true(strpos($clean, 'style=') === false, 'sanitize strips style');
+assert_true(stripos($clean, 'javascript:') === false, 'sanitize strips javascript:');
+assert_true(strpos($clean, 'https://example.com') !== false, 'sanitize keeps https href');
+
+// Hero / projects 字段
+assert_true(function_exists('site_hero_bg_url'), 'hero bg helper');
+assert_true(function_exists('site_hero_bg_normalize'), 'hero normalize');
+if (!empty($d['projects'][0])) {
+    assert_true(array_key_exists('name', $d['projects'][0]), 'project has name');
+}
+
+// 出站 TLS 默认校验：includes 内不应再硬编码关闭
+foreach (['ai.php', 'hot_fetcher.php', 'oauth_providers.php', 'mailer.php'] as $inc) {
+    $srcInc = (string) file_get_contents($root . '/includes/' . $inc);
+    assert_true(strpos($srcInc, "CURLOPT_SSL_VERIFYPEER => false") === false, $inc . ' no hard SSL_VERIFYPEER false');
+    assert_true(strpos($srcInc, "'verify_peer' => false") === false, $inc . ' no hard verify_peer false');
+}
+
 // smtp_save_config return not constant true (inspect source)
 $src = file_get_contents($root . '/includes/mailer.php');
 assert_true(strpos($src, 'return $okFile || true;') === false, 'smtp_save no longer always true');

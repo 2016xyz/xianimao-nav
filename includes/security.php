@@ -305,7 +305,7 @@ function security_post_text($key, $maxLen = 500, $default = '')
 }
 
 /**
- * 后台可编辑 HTML 白名单消毒
+ * 后台可编辑 HTML 白名单消毒（防存储型 XSS）
  */
 function security_sanitize_html($html, $maxLen = 20000)
 {
@@ -313,15 +313,79 @@ function security_sanitize_html($html, $maxLen = 20000)
     if ($html === '') {
         return '';
     }
+    // 解码常见实体后再判断危险协议（防 java&#115;cript: 绕过）
+    $decoded = html_entity_decode($html, ENT_QUOTES | ENT_HTML5, 'UTF-8');
     $allowed = '<p><br><br/><b><strong><i><em><u><a><ul><ol><li><h2><h3><h4><span><div><blockquote>';
-    $clean = strip_tags($html, $allowed);
+    $clean = strip_tags($decoded, $allowed);
+
+    // 去掉事件处理器 / style（style 可藏 url(javascript:) 等）
     $clean = preg_replace('/\s+on\w+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)/iu', '', $clean) ?? $clean;
-    $clean = preg_replace('/\s+(href|src)\s*=\s*([\'"])\s*javascript:[^\'"]*\2/iu', ' $1="#"', $clean) ?? $clean;
-    $clean = preg_replace('/\s+(href|src)\s*=\s*javascript:[^\s>]*/iu', ' $1="#"', $clean) ?? $clean;
+    $clean = preg_replace('/\s+style\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)/iu', '', $clean) ?? $clean;
+    // 去掉危险协议字面量
     $clean = preg_replace('/javascript\s*:/iu', '', $clean) ?? $clean;
-    // 禁止 data: / vbscript:
-    $clean = preg_replace('/\s+(href|src)\s*=\s*([\'"])\s*(data|vbscript):[^\'"]*\2/iu', ' $1="#"', $clean) ?? $clean;
+    $clean = preg_replace('/vbscript\s*:/iu', '', $clean) ?? $clean;
+    $clean = preg_replace('/data\s*:/iu', '', $clean) ?? $clean;
+
+    // 规范化 <a href>：仅 http(s) / mailto / 站内相对
+    $clean = preg_replace_callback(
+        '/<a\b([^>]*)>/iu',
+        static function ($m) {
+            $attrs = $m[1];
+            $href = '';
+            if (preg_match('/\bhref\s*=\s*([\'"])(.*?)\1/iu', $attrs, $hm)) {
+                $href = html_entity_decode(trim($hm[2]), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+            } elseif (preg_match('/\bhref\s*=\s*([^\s>]+)/iu', $attrs, $hm)) {
+                $href = html_entity_decode(trim($hm[1], "\"'"), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+            }
+            $safe = '';
+            if ($href !== '') {
+                if (preg_match('#^mailto:[^\s<>"\']+$#iu', $href)) {
+                    $safe = $href;
+                } else {
+                    $safe = security_url($href, true);
+                }
+            }
+            $target = '';
+            if (preg_match('/\btarget\s*=\s*([\'"])(.*?)\1/iu', $attrs, $tm)) {
+                $t = strtolower(trim($tm[2]));
+                if (in_array($t, ['_blank', '_self'], true)) {
+                    $target = $t;
+                }
+            }
+            $out = '<a';
+            if ($safe !== '') {
+                $out .= ' href="' . htmlspecialchars($safe, ENT_QUOTES, 'UTF-8') . '"';
+            } else {
+                $out .= ' href="#"';
+            }
+            if ($target === '_blank') {
+                $out .= ' target="_blank" rel="noopener noreferrer"';
+            } elseif ($target === '_self') {
+                $out .= ' target="_self"';
+            }
+            $out .= '>';
+            return $out;
+        },
+        $clean
+    ) ?? $clean;
+
+    // 再次去掉可能残留的 script 标签碎片
+    $clean = preg_replace('#<\s*/?\s*script\b[^>]*>#iu', '', $clean) ?? $clean;
     return $clean;
+}
+
+/**
+ * 出站 HTTPS 是否校验证书（默认开启；setting ssl_verify_peer=0 可关闭）
+ */
+function security_ssl_verify_peer()
+{
+    if (function_exists('setting_get')) {
+        $v = setting_get('ssl_verify_peer', '1');
+        if ($v === '0' || $v === 'false' || $v === 'off') {
+            return false;
+        }
+    }
+    return true;
 }
 
 /**

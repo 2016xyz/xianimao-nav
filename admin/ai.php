@@ -30,7 +30,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (ai_config_save($input)) {
             flash_set('success', 'AI 配置已保存');
         } else {
-            flash_set('error', '保存失败，请检查 config 目录写权限');
+            flash_set('error', '保存失败，请检查数据库连接与 settings 表写权限');
         }
         redirect('ai.php');
     }

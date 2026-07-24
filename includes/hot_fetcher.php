@@ -456,8 +456,7 @@ function hot_linuxdo_write_db(array $payload)
     if (function_exists('secret_blob_set')) {
         $ok = secret_blob_set('linuxdo_auth', $payload) && $ok;
     }
-    $ok = hot_setting_set('linuxdo_cookie', $payload['cookie']) && $ok;
-    $ok = hot_setting_set('linuxdo_api_key', $payload['api_key']) && $ok;
+    // 仅写非敏感元数据；cookie/api_key 只在 secret 块
     $ok = hot_setting_set('linuxdo_api_username', $payload['api_username']) && $ok;
     $ok = hot_setting_set('linuxdo_auth_mode', $payload['mode']) && $ok;
     $ok = hot_setting_set('linuxdo_auth_updated_at', $payload['updated_at']) && $ok;
@@ -704,8 +703,8 @@ function hot_http_get($url, $timeout = 12, array $headers = [])
             CURLOPT_FOLLOWLOCATION => true,
             CURLOPT_TIMEOUT => $timeout,
             CURLOPT_CONNECTTIMEOUT => 8,
-            CURLOPT_SSL_VERIFYPEER => false,
-            CURLOPT_SSL_VERIFYHOST => false,
+            CURLOPT_SSL_VERIFYPEER => function_exists('security_ssl_verify_peer') ? security_ssl_verify_peer() : true,
+            CURLOPT_SSL_VERIFYHOST => (function_exists('security_ssl_verify_peer') && !security_ssl_verify_peer()) ? 0 : 2,
             CURLOPT_ENCODING => '',
             CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
             CURLOPT_HTTPHEADER => $headers,
@@ -732,8 +731,8 @@ function hot_http_get($url, $timeout = 12, array $headers = [])
             'ignore_errors' => true,
         ],
         'ssl' => [
-            'verify_peer' => false,
-            'verify_peer_name' => false,
+            'verify_peer' => function_exists('security_ssl_verify_peer') ? security_ssl_verify_peer() : true,
+            'verify_peer_name' => function_exists('security_ssl_verify_peer') ? security_ssl_verify_peer() : true,
         ],
     ]);
     $body = @file_get_contents($url, false, $ctx);
