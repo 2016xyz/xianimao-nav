@@ -69,6 +69,7 @@ $moduleLabels = [
     'smtp' => 'SMTP',
     'password' => '密码',
     'logs' => '操作日志',
+    'update' => '系统更新',
     'system' => '系统',
 ];
 $levelLabels = [

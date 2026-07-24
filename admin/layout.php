@@ -25,6 +25,7 @@ function admin_layout_start($title, $page = '')
         ['page' => 'ai', 'href' => 'ai.php', 'label' => 'AI 配置', 'short' => 'AI', 'icon' => 'spark'],
         ['page' => 'smtp', 'href' => 'smtp.php', 'label' => 'SMTP / 登录验证', 'short' => '邮', 'icon' => 'mail'],
         ['page' => 'logs', 'href' => 'logs.php', 'label' => '操作日志', 'short' => '志', 'icon' => 'list'],
+        ['page' => 'update', 'href' => 'update.php', 'label' => '系统更新', 'short' => '更', 'icon' => 'refresh'],
         ['page' => 'password', 'href' => 'password.php', 'label' => '修改密码', 'short' => '密', 'icon' => 'lock'],
     ];
     $username = (string) ($_SESSION['admin_username'] ?? '管理员');

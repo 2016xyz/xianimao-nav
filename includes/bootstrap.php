@@ -10,6 +10,7 @@ define('AUTH_FILE', ROOT_PATH . '/config/auth.php'); // 兼容旧文件，已改
 require_once __DIR__ . '/security.php';
 require_once __DIR__ . '/install.php';
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/updater.php';
 
 // Session Cookie 加固 + 安全响应头（CSP / XSS / 点击劫持等）
 security_configure_session();
