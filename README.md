@@ -19,7 +19,8 @@
 | 今日热榜 | 多源真实抓取（微博、吾爱破解、B 站、百度、Linux.do 等），可后台开关与排序，带缓存 |
 | 子页面 | 申请收录、在线留言、关于我们、联系我们（可配置页脚显示） |
 | 邮箱验证码 | 收录 / 留言须邮箱 + 验证码后方可提交，成功后邮件通知管理员 |
-| 后台管理 | 站点设置、引擎 / 快捷方式 / 站点 / 项目 / 工具 / 友链、热榜、留言、SMTP、AI、改密 |
+| 后台管理 | 站点设置（含 SEO）、引擎 / 快捷方式 / 站点 / 项目 / 工具 / 友链、热榜、留言、SMTP、AI、改密 |
+| SEO | 后台可配置标题 / 关键词 / 描述 / robots / canonical / OG 图 / 百度·Google·Bing 验证；前后台统一输出 |
 | OAuth 凭证 | Linux.do Connect OAuth2；吾爱破解 Cookie 授权流（用于登录态热榜） |
 | 安装向导 | 环境检测、数据库测试、一键建表与种子数据、安装锁 |
 | 安全防护 | CSP、HttpOnly Cookie、CSRF、参数化 SQL、输入强校验、HTML 消毒、危险 URL 拦截 |
@@ -27,7 +28,8 @@
 ## 技术栈
 
 - **后端**：PHP ≥ 7.4，PDO MySQL（`ATTR_EMULATE_PREPARES=false`）
-- **前端**：服务端渲染 + Bootstrap 5 / jQuery（本地静态资源）
+- **前台**：服务端渲染 + Bootstrap 5 / jQuery（本地静态资源）
+- **后台 UI**：PHP SSR + 本地 Vue 3（侧栏折叠、按钮涟漪等壳层增强，业务不进 Vue 模板）
 - **存储**：MySQL 为主，`content.json` / 文件配置为回退与密钥落盘
 - **邮件**：原生 SMTP（SSL / TLS / none）+ HTML 邮件模板
 - **安全**：见 [docs/SECURITY.md](docs/SECURITY.md)

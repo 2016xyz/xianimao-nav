@@ -20,15 +20,15 @@ function page_layout_start($pageTitle, array $opts = [])
     $lead = $opts['lead'] ?? '';
     $pageKey = $opts['page_key'] ?? '';
     $tone = $opts['tone'] ?? 'indigo'; // indigo | teal | violet | amber
-    $fullTitle = e($pageTitle) . ' - ' . e($siteName);
+    $seoTitle = $pageTitle . ' - ' . $siteName;
+    $seoDesc = $lead !== '' ? $lead : ($pageTitle . ' - ' . $siteName);
 
-    // 与页脚开关保持一致
     $navItems = [
-        ['key' => 'home', 'href' => 'index.php', 'label' => '首页', 'show' => true],
-        ['key' => 'apply', 'href' => 'apply.php', 'label' => '申请收录', 'show' => !empty($vis['apply'])],
-        ['key' => 'message', 'href' => 'message.php', 'label' => '在线留言', 'show' => !empty($vis['message'])],
-        ['key' => 'about', 'href' => 'about.php', 'label' => '关于我们', 'show' => !empty($vis['about'])],
-        ['key' => 'contact', 'href' => 'contact.php', 'label' => '联系我们', 'show' => !empty($vis['contact'])],
+        ['key' => 'home', 'href' => 'index.php', 'label' => '首页', 'icon' => 'bi-house', 'show' => true],
+        ['key' => 'apply', 'href' => 'apply.php', 'label' => '申请收录', 'icon' => 'bi-plus-circle', 'show' => !empty($vis['apply'])],
+        ['key' => 'message', 'href' => 'message.php', 'label' => '在线留言', 'icon' => 'bi-chat-left-text', 'show' => !empty($vis['message'])],
+        ['key' => 'about', 'href' => 'about.php', 'label' => '关于我们', 'icon' => 'bi-info-circle', 'show' => !empty($vis['about'])],
+        ['key' => 'contact', 'href' => 'contact.php', 'label' => '联系我们', 'icon' => 'bi-envelope', 'show' => !empty($vis['contact'])],
     ];
     ?>
 <!DOCTYPE html>
@@ -36,8 +36,12 @@ function page_layout_start($pageTitle, array $opts = [])
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?php echo $fullTitle; ?></title>
-    <meta name="description" content="<?php echo e($lead !== '' ? $lead : $pageTitle . ' - ' . $siteName); ?>">
+    <?php
+    render_seo_head($site, [
+        'title' => $seoTitle,
+        'description' => $seoDesc,
+    ]);
+    ?>
     <link href="assets/css/bootstrap.min.css" rel="stylesheet">
     <link href="assets/css/bootstrap-icons.min.css" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/style.css">
@@ -47,23 +51,35 @@ function page_layout_start($pageTitle, array $opts = [])
 <header class="subpage-header">
     <div class="container subpage-header-inner">
         <a class="subpage-brand" href="index.php">
-            <span class="subpage-brand-icon"><i class="bi bi-compass"></i></span>
-            <span><?php echo e($siteName); ?></span>
+            <span class="subpage-brand-icon" aria-hidden="true"><i class="bi bi-compass"></i></span>
+            <span class="subpage-brand-text">
+                <span class="subpage-brand-name"><?php echo e($siteName); ?></span>
+                <span class="subpage-brand-tag">导航门户</span>
+            </span>
         </a>
-        <nav class="subpage-nav" aria-label="页面导航">
+
+        <div class="subpage-header-actions">
+            <button class="theme-toggle subpage-theme" id="themeToggle" title="切换主题" type="button" aria-label="切换主题">
+                <i class="bi bi-sun-fill" id="themeIcon"></i>
+            </button>
+            <button class="subpage-nav-toggle" id="subpageNavToggle" type="button"
+                    aria-expanded="false" aria-controls="subpageNav" aria-label="打开菜单">
+                <i class="bi bi-list" aria-hidden="true"></i>
+            </button>
+        </div>
+
+        <nav class="subpage-nav" id="subpageNav" aria-label="页面导航">
             <?php foreach ($navItems as $item): ?>
                 <?php if (empty($item['show'])) {
                     continue;
                 } ?>
                 <a href="<?php echo e($item['href']); ?>"
                    class="<?php echo $pageKey === $item['key'] ? 'is-active' : ''; ?>">
-                    <?php echo e($item['label']); ?>
+                    <i class="bi <?php echo e($item['icon']); ?>" aria-hidden="true"></i>
+                    <span><?php echo e($item['label']); ?></span>
                 </a>
             <?php endforeach; ?>
         </nav>
-        <button class="theme-toggle subpage-theme" id="themeToggle" title="切换主题" type="button" aria-label="切换主题">
-            <i class="bi bi-sun-fill" id="themeIcon"></i>
-        </button>
     </div>
 </header>
 
@@ -93,6 +109,7 @@ function page_layout_end()
         </div>
     </div>
 </main>
+<script src="assets/js/subpage.js"></script>
 <?php
     require __DIR__ . '/footer.php';
 }

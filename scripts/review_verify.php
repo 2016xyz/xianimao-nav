@@ -70,6 +70,16 @@ $d = load_site_data();
 assert_true(($d['site']['name'] ?? '') === '夏尼猫网址导航', 'site name rebranded');
 assert_true(($d['site']['contact_email'] ?? '') === 'i@2016xlx.cn', 'contact email updated');
 
+// SEO helpers
+assert_true(function_exists('site_seo_meta') && function_exists('render_seo_head'), 'SEO helpers exist');
+assert_true(site_seo_normalize_robots('INDEX, FOLLOW') === 'index,follow', 'robots normalize');
+assert_true(site_seo_normalize_robots('javascript:alert(1)') === 'index,follow', 'robots reject junk');
+$seo = site_seo_meta($d['site'] ?? [], []);
+assert_true(($seo['title'] ?? '') !== '', 'seo title non-empty');
+assert_true(isset($seo['keywords'], $seo['description'], $seo['robots']), 'seo meta keys present');
+assert_true(array_key_exists('seo_title', $d['site'] ?? []), 'site has seo_title field');
+assert_true(array_key_exists('seo_description', $d['site'] ?? []), 'site has seo_description field');
+
 // smtp_save_config return not constant true (inspect source)
 $src = file_get_contents($root . '/includes/mailer.php');
 assert_true(strpos($src, 'return $okFile || true;') === false, 'smtp_save no longer always true');

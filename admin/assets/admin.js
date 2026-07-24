@@ -1,6 +1,8 @@
 (function () {
   'use strict';
 
+  // 侧栏折叠由 admin-vue.js (Vue 3) 接管；此处仅保留业务交互
+
   // 表单自动提交（替代 onchange 内联）
   document.querySelectorAll('[data-auto-submit]').forEach(function (el) {
     el.addEventListener('change', function () {

@@ -38,33 +38,34 @@ page_layout_start('关于我们', [
         <div class="feature-card">
             <div class="feature-icon teal"><i class="bi bi-collection"></i></div>
             <h3>精选导航</h3>
-            <p>汇集自营站点、开源项目与实用工具，一站直达。</p>
+            <p>汇集自营站点、开源项目与实用工具，一站直达，减少无效搜索。</p>
         </div>
         <div class="feature-card">
             <div class="feature-icon violet"><i class="bi bi-fire"></i></div>
             <h3>今日热榜</h3>
-            <p>同步多平台热点，快速了解当下关注焦点。</p>
+            <p>同步多平台热点，用清爽卡片快速扫到当下关注点。</p>
         </div>
         <div class="feature-card">
             <div class="feature-icon amber"><i class="bi bi-link-45deg"></i></div>
             <h3>友链共建</h3>
-            <p>欢迎优质站点申请收录，一起扩大发现半径。</p>
+            <p>欢迎优质站点申请收录，一起扩大互相发现的半径。</p>
         </div>
         <div class="feature-card">
             <div class="feature-icon indigo"><i class="bi bi-heart"></i></div>
             <h3>持续打磨</h3>
-            <p>注重体验与视觉细节，让导航更清爽好用。</p>
+            <p>注重信任感与阅读舒适度，让导航更安心、更好用。</p>
         </div>
     </div>
 
     <div class="about-cta-row">
         <a class="btn-primary-lg" href="apply.php"><i class="bi bi-plus-circle"></i> 申请收录</a>
         <a class="btn-ghost-lg" href="message.php"><i class="bi bi-chat-left-text"></i> 在线留言</a>
+        <a class="btn-ghost-lg" href="contact.php"><i class="bi bi-envelope"></i> 联系我们</a>
     </div>
 
     <div class="about-footer-meta">
         <span><i class="bi bi-globe2"></i> <?php echo e($siteName); ?></span>
-        <a class="side-link" href="contact.php">联系我们 <i class="bi bi-arrow-right"></i></a>
+        <a class="side-link" href="index.php">返回首页 <i class="bi bi-arrow-right"></i></a>
     </div>
 </div>
 <?php page_layout_end(); ?>

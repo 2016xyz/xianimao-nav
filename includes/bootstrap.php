@@ -42,6 +42,18 @@ function default_content()
             'about_html' => '<p>夏尼猫网址导航汇集实用工具、开源项目与优质站点，帮助你更快找到需要的资源。</p>',
             'contact_html' => '<p>如有合作、建议或问题，欢迎通过邮件 <a href="mailto:i@2016xlx.cn">i@2016xlx.cn</a> 或留言联系我们。</p>',
             'contact_email' => 'i@2016xlx.cn',
+            // SEO
+            'seo_title' => '',
+            'seo_keywords' => '网址导航,实用工具,开源项目,热榜,搜索聚合,夏尼猫',
+            'seo_description' => '夏尼猫网址导航：搜索聚合、今日热榜、实用工具与优质站点一站直达。',
+            'seo_author' => '夏尼猫',
+            'seo_robots' => 'index,follow',
+            'seo_canonical' => '',
+            'seo_og_image' => '',
+            'seo_baidu_verify' => '',
+            'seo_google_verify' => '',
+            'seo_bing_verify' => '',
+            'seo_head_html' => '',
         ],
         'engines' => [],
         'shortcuts' => [],
@@ -206,6 +218,29 @@ function load_content()
             $map['contact_email'] = $map['contact_email'] ?? ($jf['site']['contact_email'] ?? '');
         }
     }
+    // SEO 等扩展字段：库中缺失时从 JSON 补齐（升级兼容）
+    $seoKeys = [
+        'seo_title', 'seo_keywords', 'seo_description', 'seo_author', 'seo_robots',
+        'seo_canonical', 'seo_og_image', 'seo_baidu_verify', 'seo_google_verify',
+        'seo_bing_verify', 'seo_head_html',
+    ];
+    $needSeoFallback = false;
+    foreach ($seoKeys as $sk) {
+        if (!array_key_exists($sk, $map) || $map[$sk] === null) {
+            $needSeoFallback = true;
+            break;
+        }
+    }
+    if ($needSeoFallback) {
+        $jf = $needJson();
+        foreach ($seoKeys as $sk) {
+            if (!array_key_exists($sk, $map) || $map[$sk] === null) {
+                if (isset($jf['site'][$sk])) {
+                    $map[$sk] = $jf['site'][$sk];
+                }
+            }
+        }
+    }
     $footerLinks = [];
     if (!empty($map['footer_links_json'])) {
         $decoded = json_decode((string) $map['footer_links_json'], true);
@@ -213,7 +248,8 @@ function load_content()
             $footerLinks = $decoded;
         }
     }
-    $data['site'] = [
+    // 在默认值上合并，避免遗漏 SEO 等扩展字段
+    $data['site'] = array_merge($data['site'], [
         'name' => $map['site_name'] ?? $data['site']['name'],
         'subtitle' => $map['site_subtitle'] ?? $data['site']['subtitle'],
         'footer' => $map['site_footer'] ?? $data['site']['footer'],
@@ -228,7 +264,18 @@ function load_content()
         'about_html' => $map['about_html'] ?? ($data['site']['about_html'] ?? ''),
         'contact_html' => $map['contact_html'] ?? ($data['site']['contact_html'] ?? ''),
         'contact_email' => $map['contact_email'] ?? ($data['site']['contact_email'] ?? ''),
-    ];
+        'seo_title' => $map['seo_title'] ?? ($data['site']['seo_title'] ?? ''),
+        'seo_keywords' => $map['seo_keywords'] ?? ($data['site']['seo_keywords'] ?? ''),
+        'seo_description' => $map['seo_description'] ?? ($data['site']['seo_description'] ?? ''),
+        'seo_author' => $map['seo_author'] ?? ($data['site']['seo_author'] ?? ''),
+        'seo_robots' => site_seo_normalize_robots($map['seo_robots'] ?? ($data['site']['seo_robots'] ?? 'index,follow')),
+        'seo_canonical' => $map['seo_canonical'] ?? ($data['site']['seo_canonical'] ?? ''),
+        'seo_og_image' => $map['seo_og_image'] ?? ($data['site']['seo_og_image'] ?? ''),
+        'seo_baidu_verify' => $map['seo_baidu_verify'] ?? ($data['site']['seo_baidu_verify'] ?? ''),
+        'seo_google_verify' => $map['seo_google_verify'] ?? ($data['site']['seo_google_verify'] ?? ''),
+        'seo_bing_verify' => $map['seo_bing_verify'] ?? ($data['site']['seo_bing_verify'] ?? ''),
+        'seo_head_html' => $map['seo_head_html'] ?? ($data['site']['seo_head_html'] ?? ''),
+    ]);
 
     // engines
     $engines = $pdo->query('SELECT id, slug, name, url, sort_order FROM engines ORDER BY sort_order ASC, id ASC')->fetchAll();
@@ -452,6 +499,17 @@ function save_content(array $data)
             'about_html' => $site['about_html'] ?? '',
             'contact_html' => $site['contact_html'] ?? '',
             'contact_email' => $site['contact_email'] ?? '',
+            'seo_title' => $site['seo_title'] ?? '',
+            'seo_keywords' => $site['seo_keywords'] ?? '',
+            'seo_description' => $site['seo_description'] ?? '',
+            'seo_author' => $site['seo_author'] ?? '',
+            'seo_robots' => site_seo_normalize_robots($site['seo_robots'] ?? 'index,follow'),
+            'seo_canonical' => $site['seo_canonical'] ?? '',
+            'seo_og_image' => $site['seo_og_image'] ?? '',
+            'seo_baidu_verify' => $site['seo_baidu_verify'] ?? '',
+            'seo_google_verify' => $site['seo_google_verify'] ?? '',
+            'seo_bing_verify' => $site['seo_bing_verify'] ?? '',
+            'seo_head_html' => $site['seo_head_html'] ?? '',
         ];
         $stmt = $pdo->prepare('INSERT INTO settings (skey, svalue) VALUES (?, ?) ON DUPLICATE KEY UPDATE svalue = VALUES(svalue)');
         foreach ($settings as $k => $v) {
@@ -739,6 +797,234 @@ function load_site_data()
     $content = load_content();
     $content['hot_boards'] = load_hot_boards();
     return $content;
+}
+
+/**
+ * 规范化 SEO robots 指令
+ */
+function site_seo_normalize_robots($robots)
+{
+    $raw = strtolower(trim((string) $robots));
+    if ($raw === '') {
+        return 'index,follow';
+    }
+    $raw = str_replace([' ', ';'], ['', ','], $raw);
+    $parts = array_filter(array_map('trim', explode(',', $raw)));
+    $allowed = [
+        'index' => true,
+        'noindex' => true,
+        'follow' => true,
+        'nofollow' => true,
+        'none' => true,
+        'noarchive' => true,
+        'nosnippet' => true,
+        'noimageindex' => true,
+    ];
+    $out = [];
+    foreach ($parts as $p) {
+        if (isset($allowed[$p])) {
+            $out[$p] = $p;
+        }
+    }
+    if (!$out) {
+        return 'index,follow';
+    }
+    return implode(',', array_values($out));
+}
+
+/**
+ * 当前请求的绝对 URL（用于 canonical 默认）
+ */
+function site_request_absolute_url()
+{
+    $https = function_exists('security_is_https') ? security_is_https() : (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
+    $scheme = $https ? 'https' : 'http';
+    $host = (string) ($_SERVER['HTTP_HOST'] ?? '');
+    if ($host === '' || !preg_match('/^[a-zA-Z0-9.\-:\[\]]+$/', $host)) {
+        return '';
+    }
+    $uri = (string) ($_SERVER['REQUEST_URI'] ?? '/');
+    // 去掉 fragment / 危险字符
+    $uri = str_replace(["\0", "\r", "\n"], '', $uri);
+    if ($uri === '' || $uri[0] !== '/') {
+        $uri = '/' . ltrim($uri, '/');
+    }
+    return $scheme . '://' . $host . $uri;
+}
+
+/**
+ * 解析站点 SEO 元信息（可被页面覆盖）
+ *
+ * @param array $site site 配置
+ * @param array $overrides title|description|keywords|canonical|og_type|noindex
+ * @return array
+ */
+function site_seo_meta(array $site, array $overrides = [])
+{
+    $name = trim((string) ($site['name'] ?? '夏尼猫网址导航'));
+    $subtitle = trim((string) ($site['subtitle'] ?? ''));
+    $seoTitle = trim((string) ($site['seo_title'] ?? ''));
+    $seoDesc = trim((string) ($site['seo_description'] ?? ''));
+    $seoKw = trim((string) ($site['seo_keywords'] ?? ''));
+    $author = trim((string) ($site['seo_author'] ?? ''));
+    $robots = site_seo_normalize_robots($site['seo_robots'] ?? 'index,follow');
+    $canonicalCfg = trim((string) ($site['seo_canonical'] ?? ''));
+    $ogImage = trim((string) ($site['seo_og_image'] ?? ''));
+
+    if (!empty($overrides['noindex'])) {
+        $robots = 'noindex,nofollow';
+    }
+
+    $pageTitle = isset($overrides['title']) ? trim((string) $overrides['title']) : '';
+    if ($pageTitle !== '') {
+        $title = $pageTitle;
+    } elseif ($seoTitle !== '') {
+        $title = $seoTitle;
+    } else {
+        $title = $subtitle !== '' ? ($name . ' - ' . $subtitle) : ($name . ' - 上网从这里开始');
+    }
+
+    $description = isset($overrides['description']) ? trim((string) $overrides['description']) : '';
+    if ($description === '') {
+        $description = $seoDesc !== '' ? $seoDesc : $subtitle;
+    }
+    if (function_exists('mb_substr')) {
+        $description = mb_substr($description, 0, 320, 'UTF-8');
+    } else {
+        $description = substr($description, 0, 320);
+    }
+
+    $keywords = isset($overrides['keywords']) ? trim((string) $overrides['keywords']) : $seoKw;
+    if (function_exists('mb_substr')) {
+        $keywords = mb_substr($keywords, 0, 500, 'UTF-8');
+    } else {
+        $keywords = substr($keywords, 0, 500);
+    }
+
+    // canonical：优先页面覆盖 → 首选域名改写当前路径 → 当前绝对 URL → 配置的 canonical
+    $canonical = isset($overrides['canonical']) ? trim((string) $overrides['canonical']) : '';
+    if ($canonical === '') {
+        $reqUrl = site_request_absolute_url();
+        $preferredOrigin = '';
+        if ($canonicalCfg !== '') {
+            $cfgParts = parse_url($canonicalCfg);
+            if (is_array($cfgParts) && !empty($cfgParts['scheme']) && !empty($cfgParts['host'])) {
+                $preferredOrigin = strtolower($cfgParts['scheme']) . '://' . $cfgParts['host'];
+                if (!empty($cfgParts['port'])) {
+                    $preferredOrigin .= ':' . (int) $cfgParts['port'];
+                }
+            }
+        }
+        if ($reqUrl !== '') {
+            $reqParts = parse_url($reqUrl);
+            $path = is_array($reqParts) ? (string) ($reqParts['path'] ?? '/') : '/';
+            if ($path === '') {
+                $path = '/';
+            }
+            // 首页 index.php 规范为站点根
+            if (preg_match('#/index\.php/?$#i', $path)) {
+                $path = preg_replace('#/index\.php/?$#i', '/', $path);
+            }
+            if ($preferredOrigin !== '') {
+                $canonical = $preferredOrigin . $path;
+            } else {
+                $scheme = is_array($reqParts) ? (string) ($reqParts['scheme'] ?? 'https') : 'https';
+                $host = is_array($reqParts) ? (string) ($reqParts['host'] ?? '') : '';
+                $port = is_array($reqParts) && !empty($reqParts['port']) ? (':' . (int) $reqParts['port']) : '';
+                $canonical = $host !== '' ? ($scheme . '://' . $host . $port . $path) : $reqUrl;
+            }
+        } else {
+            $canonical = $canonicalCfg;
+        }
+    }
+    $canonical = safe_http_url($canonical, false);
+    $ogImage = safe_http_url($ogImage, false);
+
+    $ogType = trim((string) ($overrides['og_type'] ?? 'website'));
+    if (!in_array($ogType, ['website', 'article', 'profile'], true)) {
+        $ogType = 'website';
+    }
+
+    return [
+        'title' => $title,
+        'description' => $description,
+        'keywords' => $keywords,
+        'author' => $author,
+        'robots' => $robots,
+        'canonical' => $canonical,
+        'og_image' => $ogImage,
+        'og_type' => $ogType,
+        'site_name' => $name,
+        'baidu_verify' => preg_replace('/[^a-zA-Z0-9_\-]/', '', (string) ($site['seo_baidu_verify'] ?? '')),
+        'google_verify' => preg_replace('/[^a-zA-Z0-9_\-]/', '', (string) ($site['seo_google_verify'] ?? '')),
+        'bing_verify' => preg_replace('/[^a-zA-Z0-9_\-]/', '', (string) ($site['seo_bing_verify'] ?? '')),
+        'head_html' => (string) ($site['seo_head_html'] ?? ''),
+    ];
+}
+
+/**
+ * 输出前台 <head> 内 SEO 标签（已转义）
+ *
+ * @param array $site
+ * @param array $overrides
+ */
+function render_seo_head(array $site, array $overrides = [])
+{
+    $m = site_seo_meta($site, $overrides);
+    echo '<title>' . e($m['title']) . "</title>\n";
+    if ($m['description'] !== '') {
+        echo '    <meta name="description" content="' . e($m['description']) . "\">\n";
+    }
+    if ($m['keywords'] !== '') {
+        echo '    <meta name="keywords" content="' . e($m['keywords']) . "\">\n";
+    }
+    if ($m['author'] !== '') {
+        echo '    <meta name="author" content="' . e($m['author']) . "\">\n";
+    }
+    echo '    <meta name="robots" content="' . e($m['robots']) . "\">\n";
+    if ($m['canonical'] !== '') {
+        echo '    <link rel="canonical" href="' . e($m['canonical']) . "\">\n";
+    }
+    // Open Graph
+    echo '    <meta property="og:type" content="' . e($m['og_type']) . "\">\n";
+    echo '    <meta property="og:site_name" content="' . e($m['site_name']) . "\">\n";
+    echo '    <meta property="og:title" content="' . e($m['title']) . "\">\n";
+    if ($m['description'] !== '') {
+        echo '    <meta property="og:description" content="' . e($m['description']) . "\">\n";
+    }
+    if ($m['canonical'] !== '') {
+        echo '    <meta property="og:url" content="' . e($m['canonical']) . "\">\n";
+    }
+    if ($m['og_image'] !== '') {
+        echo '    <meta property="og:image" content="' . e($m['og_image']) . "\">\n";
+    }
+    // Twitter
+    echo '    <meta name="twitter:card" content="' . e($m['og_image'] !== '' ? 'summary_large_image' : 'summary') . "\">\n";
+    echo '    <meta name="twitter:title" content="' . e($m['title']) . "\">\n";
+    if ($m['description'] !== '') {
+        echo '    <meta name="twitter:description" content="' . e($m['description']) . "\">\n";
+    }
+    if ($m['og_image'] !== '') {
+        echo '    <meta name="twitter:image" content="' . e($m['og_image']) . "\">\n";
+    }
+    if ($m['baidu_verify'] !== '') {
+        echo '    <meta name="baidu-site-verification" content="' . e($m['baidu_verify']) . "\">\n";
+    }
+    if ($m['google_verify'] !== '') {
+        echo '    <meta name="google-site-verification" content="' . e($m['google_verify']) . "\">\n";
+    }
+    if ($m['bing_verify'] !== '') {
+        echo '    <meta name="msvalidate.01" content="' . e($m['bing_verify']) . "\">\n";
+    }
+    $extra = sanitize_admin_html($m['head_html']);
+    // 仅允许 meta/link，强制剥离 script / 事件
+    $extra = preg_replace('#<\s*script\b[^>]*>.*?<\s*/\s*script\s*>#is', '', $extra);
+    $extra = preg_replace('#<\s*/?\s*script\b[^>]*>#i', '', $extra);
+    $extra = preg_replace('#\son\w+\s*=\s*(\'[^\']*\'|"[^"]*"|[^\s>]+)#i', '', $extra);
+    $extra = trim(strip_tags($extra, '<meta><link>'));
+    if ($extra !== '') {
+        echo '    ' . $extra . "\n";
+    }
 }
 
 function e($str)

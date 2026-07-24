@@ -181,7 +181,7 @@ if ($step === 'email') {
     <div class="login-shell">
         <section class="login-hero">
             <div class="login-brand">
-                <span class="login-brand-mark">彩</span>
+                <span class="login-brand-mark">夏</span>
                 <div>
                     <strong><?php echo e($siteName); ?></strong>
                     <small>Admin Console</small>
@@ -295,6 +295,9 @@ if ($step === 'email') {
         </div>
     </div>
 
+    <div id="admin-vue-root" hidden aria-hidden="true"></div>
+    <script src="assets/vendor/vue.global.prod.js"></script>
+    <script src="assets/admin-vue.js"></script>
     <script src="assets/login-captcha.js"></script>
 </body>
 </html>
