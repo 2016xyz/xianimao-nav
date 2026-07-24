@@ -62,7 +62,8 @@ require __DIR__ . '/includes/header.php';
 ?>
 
 <!-- 顶部背景区域 -->
-<header class="hero-section">
+<?php $heroBgUrl = site_hero_bg_url($site); ?>
+<header class="hero-section" style="--hero-bg-image: url('<?php echo e($heroBgUrl); ?>');">
     <div class="hero-overlay"></div>
     <button class="theme-toggle" id="themeToggle" title="切换白天/黑夜模式" type="button">
         <i class="bi bi-sun-fill" id="themeIcon"></i>

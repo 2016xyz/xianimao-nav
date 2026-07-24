@@ -210,7 +210,9 @@ img { max-width: 100%; height: auto; }
 /* ===== Hero ===== */
 .hero-section {
     position: relative;
-    background: url('../images/background.avif') center / cover no-repeat;
+    /* 可由后台配置：style="--hero-bg-image: url(...)" */
+    --hero-bg-image: url('../images/background.avif');
+    background: var(--hero-bg-image) center / cover no-repeat;
     padding: clamp(56px, 10vw, 96px) 0 clamp(44px, 7vw, 72px);
     min-height: clamp(340px, 52vw, 460px);
     display: flex;

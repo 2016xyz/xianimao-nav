@@ -42,6 +42,8 @@ function default_content()
             'about_html' => '<p>夏尼猫网址导航汇集实用工具、开源项目与优质站点，帮助你更快找到需要的资源。</p>',
             'contact_html' => '<p>如有合作、建议或问题，欢迎通过邮件 <a href="mailto:i@2016xlx.cn">i@2016xlx.cn</a> 或留言联系我们。</p>',
             'contact_email' => 'i@2016xlx.cn',
+            // 首页 Hero 背景图（空 = 默认 assets/images/background.avif）
+            'hero_bg' => '',
             // SEO
             'seo_title' => '',
             'seo_keywords' => '网址导航,实用工具,开源项目,热榜,搜索聚合,夏尼猫',
@@ -219,21 +221,22 @@ function load_content()
         }
     }
     // SEO 等扩展字段：库中缺失时从 JSON 补齐（升级兼容）
-    $seoKeys = [
+    $extraSiteKeys = [
+        'hero_bg',
         'seo_title', 'seo_keywords', 'seo_description', 'seo_author', 'seo_robots',
         'seo_canonical', 'seo_og_image', 'seo_baidu_verify', 'seo_google_verify',
         'seo_bing_verify', 'seo_head_html',
     ];
-    $needSeoFallback = false;
-    foreach ($seoKeys as $sk) {
+    $needExtraFallback = false;
+    foreach ($extraSiteKeys as $sk) {
         if (!array_key_exists($sk, $map) || $map[$sk] === null) {
-            $needSeoFallback = true;
+            $needExtraFallback = true;
             break;
         }
     }
-    if ($needSeoFallback) {
+    if ($needExtraFallback) {
         $jf = $needJson();
-        foreach ($seoKeys as $sk) {
+        foreach ($extraSiteKeys as $sk) {
             if (!array_key_exists($sk, $map) || $map[$sk] === null) {
                 if (isset($jf['site'][$sk])) {
                     $map[$sk] = $jf['site'][$sk];
@@ -264,6 +267,7 @@ function load_content()
         'about_html' => $map['about_html'] ?? ($data['site']['about_html'] ?? ''),
         'contact_html' => $map['contact_html'] ?? ($data['site']['contact_html'] ?? ''),
         'contact_email' => $map['contact_email'] ?? ($data['site']['contact_email'] ?? ''),
+        'hero_bg' => $map['hero_bg'] ?? ($data['site']['hero_bg'] ?? ''),
         'seo_title' => $map['seo_title'] ?? ($data['site']['seo_title'] ?? ''),
         'seo_keywords' => $map['seo_keywords'] ?? ($data['site']['seo_keywords'] ?? ''),
         'seo_description' => $map['seo_description'] ?? ($data['site']['seo_description'] ?? ''),
@@ -499,6 +503,7 @@ function save_content(array $data)
             'about_html' => $site['about_html'] ?? '',
             'contact_html' => $site['contact_html'] ?? '',
             'contact_email' => $site['contact_email'] ?? '',
+            'hero_bg' => $site['hero_bg'] ?? '',
             'seo_title' => $site['seo_title'] ?? '',
             'seo_keywords' => $site['seo_keywords'] ?? '',
             'seo_description' => $site['seo_description'] ?? '',
@@ -797,6 +802,165 @@ function load_site_data()
     $content = load_content();
     $content['hot_boards'] = load_hot_boards();
     return $content;
+}
+
+/**
+ * 默认首页 Hero 背景图（相对站点根）
+ */
+function site_hero_bg_default()
+{
+    return 'assets/images/background.avif';
+}
+
+/**
+ * 校验/规范化 Hero 背景：本地 uploads 路径或 http(s) 图片 URL
+ *
+ * @return string 合法路径/URL，非法则空串
+ */
+function site_hero_bg_normalize($value)
+{
+    $value = trim((string) $value);
+    if ($value === '') {
+        return '';
+    }
+    // 本地上传：assets/images/uploads/hero-*.{ext}
+    if (preg_match('#^assets/images/uploads/hero-[a-zA-Z0-9_\-]+\.(jpe?g|png|gif|webp|avif)$#i', $value)) {
+        return $value;
+    }
+    // 内置默认图
+    if ($value === site_hero_bg_default() || $value === 'assets/images/background.avif') {
+        return site_hero_bg_default();
+    }
+    $url = safe_http_url($value, false);
+    if ($url === '') {
+        return '';
+    }
+    // 拒绝危险扩展 / 非图片感 URL 仍允许常见 CDN 图（无扩展也可）
+    if (preg_match('#\.(php|phtml|php\d*|js|html?|svg|xml|exe|sh)(\?|$)#i', $url)) {
+        return '';
+    }
+    return $url;
+}
+
+/**
+ * 解析前台实际使用的 Hero 背景 URL（始终有值）
+ */
+function site_hero_bg_url(array $site)
+{
+    $raw = site_hero_bg_normalize($site['hero_bg'] ?? '');
+    if ($raw === '') {
+        return site_hero_bg_default();
+    }
+    return $raw;
+}
+
+/**
+ * 是否为本地上传的 Hero 图
+ */
+function site_hero_bg_is_upload($path)
+{
+    $path = (string) $path;
+    return (bool) preg_match('#^assets/images/uploads/hero-[a-zA-Z0-9_\-]+\.(jpe?g|png|gif|webp|avif)$#i', $path);
+}
+
+/**
+ * 删除本地 Hero 上传文件（安全路径校验）
+ */
+function site_hero_bg_delete_file($relativePath)
+{
+    $relativePath = site_hero_bg_normalize($relativePath);
+    if (!site_hero_bg_is_upload($relativePath)) {
+        return false;
+    }
+    $full = ROOT_PATH . '/' . str_replace(['\\', '..'], ['/', ''], $relativePath);
+    $realBase = realpath(ROOT_PATH . '/assets/images/uploads');
+    if ($realBase === false) {
+        return false;
+    }
+    if (!is_file($full)) {
+        return false;
+    }
+    $realFile = realpath($full);
+    if ($realFile === false || strpos($realFile, $realBase) !== 0) {
+        return false;
+    }
+    return @unlink($realFile);
+}
+
+/**
+ * 处理后台 Hero 背景上传
+ *
+ * @param array $file $_FILES['hero_bg_file']
+ * @return array{ok:bool,path?:string,error?:string}
+ */
+function site_hero_bg_handle_upload(array $file)
+{
+    if (($file['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+        return ['ok' => true, 'path' => ''];
+    }
+    if (($file['error'] ?? UPLOAD_ERR_OK) !== UPLOAD_ERR_OK) {
+        return ['ok' => false, 'error' => '图片上传失败（错误码 ' . (int) $file['error'] . '）'];
+    }
+    $tmp = (string) ($file['tmp_name'] ?? '');
+    if ($tmp === '' || !is_uploaded_file($tmp)) {
+        return ['ok' => false, 'error' => '无效的上传文件'];
+    }
+    $size = (int) ($file['size'] ?? 0);
+    if ($size <= 0 || $size > 5 * 1024 * 1024) {
+        return ['ok' => false, 'error' => '背景图需小于 5MB'];
+    }
+
+    $ext = '';
+    if (function_exists('finfo_open')) {
+        $finfo = finfo_open(FILEINFO_MIME_TYPE);
+        $mime = $finfo ? finfo_file($finfo, $tmp) : '';
+        if ($finfo) {
+            finfo_close($finfo);
+        }
+        $mimeMap = [
+            'image/jpeg' => 'jpg',
+            'image/png' => 'png',
+            'image/gif' => 'gif',
+            'image/webp' => 'webp',
+            'image/avif' => 'avif',
+        ];
+        if (!isset($mimeMap[$mime])) {
+            return ['ok' => false, 'error' => '仅支持 JPG / PNG / GIF / WebP / AVIF'];
+        }
+        $ext = $mimeMap[$mime];
+    } else {
+        $orig = strtolower((string) pathinfo((string) ($file['name'] ?? ''), PATHINFO_EXTENSION));
+        $allowed = ['jpg' => true, 'jpeg' => true, 'png' => true, 'gif' => true, 'webp' => true, 'avif' => true];
+        if (!isset($allowed[$orig])) {
+            return ['ok' => false, 'error' => '仅支持 JPG / PNG / GIF / WebP / AVIF'];
+        }
+        $ext = $orig === 'jpeg' ? 'jpg' : $orig;
+    }
+
+    // 二次校验：getimagesize（avif 部分环境可能不支持，失败时仅依赖 mime）
+    if (function_exists('getimagesize') && $ext !== 'avif') {
+        $info = @getimagesize($tmp);
+        if ($info === false) {
+            return ['ok' => false, 'error' => '无法识别为有效图片'];
+        }
+    }
+
+    $dir = ROOT_PATH . '/assets/images/uploads';
+    if (!is_dir($dir) && !@mkdir($dir, 0755, true)) {
+        return ['ok' => false, 'error' => '无法创建上传目录 assets/images/uploads'];
+    }
+    if (!is_writable($dir)) {
+        return ['ok' => false, 'error' => '上传目录不可写'];
+    }
+
+    $name = 'hero-' . date('YmdHis') . '-' . bin2hex(random_bytes(4)) . '.' . $ext;
+    $dest = $dir . '/' . $name;
+    if (!@move_uploaded_file($tmp, $dest)) {
+        return ['ok' => false, 'error' => '保存上传文件失败'];
+    }
+    @chmod($dest, 0644);
+
+    return ['ok' => true, 'path' => 'assets/images/uploads/' . $name];
 }
 
 /**

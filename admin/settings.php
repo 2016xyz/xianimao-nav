@@ -32,10 +32,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $seoGoogle = preg_replace('/[^a-zA-Z0-9_\-]/', '', (string) ($_POST['seo_google_verify'] ?? ''));
     $seoBing = preg_replace('/[^a-zA-Z0-9_\-]/', '', (string) ($_POST['seo_bing_verify'] ?? ''));
 
+    // Hero 背景：优先上传 → 外链 URL → 保留原值；可恢复默认
+    $prevHero = site_hero_bg_normalize($site['hero_bg'] ?? '');
+    $heroBg = $prevHero;
+    $resetHero = !empty($_POST['hero_bg_reset']);
+    $uploadResult = site_hero_bg_handle_upload($_FILES['hero_bg_file'] ?? []);
+    if (!$uploadResult['ok']) {
+        flash_set('error', $uploadResult['error'] ?? '背景图上传失败');
+        redirect('settings.php');
+    }
+    $uploadedPath = (string) ($uploadResult['path'] ?? '');
+    if ($resetHero) {
+        if (site_hero_bg_is_upload($prevHero)) {
+            site_hero_bg_delete_file($prevHero);
+        }
+        $heroBg = '';
+    } elseif ($uploadedPath !== '') {
+        if (site_hero_bg_is_upload($prevHero) && $prevHero !== $uploadedPath) {
+            site_hero_bg_delete_file($prevHero);
+        }
+        $heroBg = $uploadedPath;
+    } else {
+        $urlInput = trim((string) ($_POST['hero_bg_url'] ?? ''));
+        if ($urlInput !== '') {
+            $norm = site_hero_bg_normalize($urlInput);
+            if ($norm === '') {
+                flash_set('error', '背景图外链无效，请使用 http(s) 图片地址');
+                redirect('settings.php');
+            }
+            if (site_hero_bg_is_upload($prevHero) && !site_hero_bg_is_upload($norm)) {
+                site_hero_bg_delete_file($prevHero);
+            }
+            $heroBg = $norm;
+        }
+        // 未改 URL、未上传：保留 $prevHero
+    }
+
     // 合并写入，保留 site 上其它扩展字段，避免整表覆盖丢失
     $content['site'] = array_merge(is_array($site) ? $site : [], [
         'name' => security_clean_text($_POST['name'] ?? '', 80),
         'subtitle' => security_clean_text($_POST['subtitle'] ?? '', 200),
+        'hero_bg' => $heroBg,
         'footer' => security_clean_text($_POST['footer'] ?? '', 300),
         'footer_extra' => security_clean_text($_POST['footer_extra'] ?? '', 500),
         'footer_show_apply' => !empty($_POST['footer_show_apply']) ? '1' : '0',
@@ -69,10 +106,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $footerLinks = normalize_footer_links($site['footer_links'] ?? []);
+$heroPreview = site_hero_bg_url($site);
+$heroStored = site_hero_bg_normalize($site['hero_bg'] ?? '');
+$heroUrlField = (strpos($heroStored, 'http://') === 0 || strpos($heroStored, 'https://') === 0) ? $heroStored : '';
+// 后台在 /admin 下，本地资源需加 ../；外链原样
+$heroPreviewCss = (strpos($heroPreview, 'http://') === 0 || strpos($heroPreview, 'https://') === 0)
+    ? $heroPreview
+    : ('../' . ltrim($heroPreview, '/'));
 admin_layout_start('站点设置', 'settings');
 ?>
 <div class="panel">
-    <form method="post" class="form-grid">
+    <form method="post" class="form-grid" enctype="multipart/form-data">
         <?php echo csrf_field(); ?>
         <label>
             <span>站点名称</span>
@@ -82,6 +126,28 @@ admin_layout_start('站点设置', 'settings');
             <span>副标题 / 简介</span>
             <input type="text" name="subtitle" value="<?php echo e($site['subtitle'] ?? ''); ?>" maxlength="200">
         </label>
+
+        <fieldset class="footer-edit-block hero-bg-block" style="border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin:4px 0 8px;grid-column:1/-1;">
+            <legend style="padding:0 8px;font-size:0.95rem;font-weight:700;">首页顶部背景图</legend>
+            <p class="muted" style="margin:0 0 12px;font-size:0.88rem;">显示在首页标题与副标题背后的大图。可上传本地图片，或填写外链；勾选「恢复默认」可还原内置图。</p>
+            <div class="hero-bg-preview-wrap" style="margin-bottom:12px;">
+                <div class="hero-bg-preview" style="max-width:420px;height:120px;border-radius:10px;background:url('<?php echo e($heroPreviewCss); ?>') center/cover no-repeat;border:1px solid var(--border);box-shadow:inset 0 0 0 1px rgba(0,0,0,.04);"></div>
+                <p class="muted" style="margin:6px 0 0;font-size:0.82rem;">当前：<?php echo e($heroStored !== '' ? $heroStored : '默认 ' . site_hero_bg_default()); ?></p>
+            </div>
+            <label>
+                <span>上传新背景（JPG / PNG / GIF / WebP / AVIF，≤5MB）</span>
+                <input type="file" name="hero_bg_file" accept="image/jpeg,image/png,image/gif,image/webp,image/avif,.jpg,.jpeg,.png,.gif,.webp,.avif">
+            </label>
+            <label>
+                <span>或使用外链图片 URL（与上传二选一，上传优先）</span>
+                <input type="url" name="hero_bg_url" value="<?php echo e($heroUrlField); ?>" placeholder="https://example.com/banner.jpg" maxlength="500">
+            </label>
+            <label class="checkbox-label" style="display:flex;align-items:center;gap:8px;margin-top:4px;">
+                <input type="checkbox" name="hero_bg_reset" value="1">
+                <span>恢复默认背景图（清除自定义）</span>
+            </label>
+        </fieldset>
+
         <label>
             <span>页脚版权文字</span>
             <input type="text" name="footer" value="<?php echo e($site['footer'] ?? ''); ?>" maxlength="300">
@@ -245,8 +311,10 @@ admin_layout_start('站点设置', 'settings');
 .footer-edit-block label > span { display:block; margin-bottom:6px; font-weight:600; }
 .footer-edit-block input[type="text"],
 .footer-edit-block input[type="url"],
+.footer-edit-block input[type="file"],
 .footer-edit-block textarea,
 .footer-edit-block select { width:100%; max-width:720px; }
 #footer-links-table input { width:100%; min-width:120px; }
+.hero-bg-block .hero-bg-preview { background-color: #e2e8f0; }
 </style>
 <?php admin_layout_end(['assets/settings-footer.js']); ?>

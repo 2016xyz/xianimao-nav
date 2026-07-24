@@ -17,6 +17,11 @@
 /data/cache/*
 !/data/cache/.gitkeep
 
+# 用户上传的首页背景图（保留目录）
+/assets/images/uploads/*
+!/assets/images/uploads/.gitkeep
+!/assets/images/uploads/.htaccess
+
 # 环境与本地配置
 .env
 .env.*
