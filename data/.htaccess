@@ -1,0 +1,2 @@
+# 禁止通过 Web 直接访问数据文件
+Require all denied

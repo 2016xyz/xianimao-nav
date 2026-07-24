@@ -1,0 +1,41 @@
+# 安装与数据库（含密钥，切勿提交）
+/config/database.php
+/config/install.lock
+
+# 运行时密钥与凭证
+/config/linuxdo_auth.json
+/config/linuxdo_oauth_app.json
+/config/52pojie_auth.json
+/config/ai_config.json
+/config/smtp.json
+/config/auth.php
+/config/hot_config.json
+/config/site_extra.json
+/data/linuxdo_auth.json
+/data/52pojie_auth.json
+/data/messages.json
+/data/cache/*
+!/data/cache/.gitkeep
+
+# 环境与本地配置
+.env
+.env.*
+!.env.example
+php-dev.ini
+*.log
+
+# IDE / 工具
+.trae/
+.idea/
+.vscode/
+*.swp
+*~
+
+# 操作系统
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 依赖与构建（如有）
+/vendor/
+/node_modules/

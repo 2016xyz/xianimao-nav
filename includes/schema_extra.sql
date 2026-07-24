@@ -1,0 +1,36 @@
+-- 已安装站点增量表（可重复执行）
+CREATE TABLE IF NOT EXISTS `tools` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `name` varchar(120) NOT NULL,
+  `description` varchar(500) NOT NULL DEFAULT '',
+  `url` varchar(500) NOT NULL,
+  `sort_order` int NOT NULL DEFAULT 0,
+  PRIMARY KEY (`id`),
+  KEY `idx_sort` (`sort_order`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `links` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `name` varchar(120) NOT NULL,
+  `description` varchar(500) NOT NULL DEFAULT '',
+  `url` varchar(500) NOT NULL,
+  `sort_order` int NOT NULL DEFAULT 0,
+  PRIMARY KEY (`id`),
+  KEY `idx_sort` (`sort_order`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `messages` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `type` varchar(20) NOT NULL DEFAULT 'message',
+  `name` varchar(80) NOT NULL DEFAULT '',
+  `contact` varchar(120) NOT NULL DEFAULT '',
+  `email` varchar(120) NOT NULL DEFAULT '',
+  `website` varchar(500) NOT NULL DEFAULT '',
+  `content` text NOT NULL,
+  `status` varchar(20) NOT NULL DEFAULT 'pending',
+  `ip` varchar(64) NOT NULL DEFAULT '',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_type_status` (`type`, `status`),
+  KEY `idx_created` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
