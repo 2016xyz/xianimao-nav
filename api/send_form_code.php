@@ -14,7 +14,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 $token = (string) ($_POST['csrf_token'] ?? ($_POST['_csrf'] ?? ''));
-if ($token === '' || empty($_SESSION['csrf_token']) || !hash_equals((string) $_SESSION['csrf_token'], $token)) {
+if (!csrf_verify($token)) {
     echo json_encode(['ok' => false, 'message' => '安全校验失败，请刷新页面'], JSON_UNESCAPED_UNICODE);
     exit;
 }

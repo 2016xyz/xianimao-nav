@@ -15,7 +15,7 @@ if (!defined('ROOT_PATH')) {
 function updater_default_version()
 {
     return [
-        'name' => '夏尼猫网址导航',
+        'name' => '网址导航',
         'version' => '0.0.0',
         'build' => '',
         'commit' => '',
@@ -53,7 +53,7 @@ function updater_write_version(array $data)
     $cur = updater_local_version();
     $merged = array_merge($cur, $data);
     $export = var_export([
-        'name' => (string) ($merged['name'] ?? '夏尼猫网址导航'),
+        'name' => (string) ($merged['name'] ?? (function_exists('site_brand_default_name') ? site_brand_default_name() : '网址导航')),
         'version' => (string) ($merged['version'] ?? '0.0.0'),
         'build' => (string) ($merged['build'] ?? ''),
         'commit' => (string) ($merged['commit'] ?? ''),
@@ -110,11 +110,15 @@ function updater_http_get($url, $timeout = 25, array $headers = [])
             CURLOPT_MAXREDIRS => 5,
             CURLOPT_TIMEOUT => $timeout,
             CURLOPT_CONNECTTIMEOUT => 10,
-            CURLOPT_SSL_VERIFYPEER => $verify,
-            CURLOPT_SSL_VERIFYHOST => $verify ? 2 : 0,
             CURLOPT_ENCODING => '',
             CURLOPT_HTTPHEADER => $headers,
         ]);
+        if (function_exists('security_curl_set_ssl')) {
+            security_curl_set_ssl($ch);
+        } else {
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, $verify);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, $verify ? 2 : 0);
+        }
         $body = curl_exec($ch);
         $errno = curl_errno($ch);
         $err = curl_error($ch);
@@ -137,10 +141,12 @@ function updater_http_get($url, $timeout = 25, array $headers = [])
             'header' => $headerStr,
             'ignore_errors' => true,
         ],
-        'ssl' => [
-            'verify_peer' => $verify,
-            'verify_peer_name' => $verify,
-        ],
+        'ssl' => function_exists('security_stream_ssl_opts')
+            ? security_stream_ssl_opts()
+            : [
+                'verify_peer' => $verify,
+                'verify_peer_name' => $verify,
+            ],
     ]);
     $body = @file_get_contents($url, false, $ctx);
     $code = 0;
@@ -188,10 +194,14 @@ function updater_http_download($url, $destPath, $timeout = 180)
             CURLOPT_MAXREDIRS => 5,
             CURLOPT_TIMEOUT => $timeout,
             CURLOPT_CONNECTTIMEOUT => 15,
-            CURLOPT_SSL_VERIFYPEER => $verify,
-            CURLOPT_SSL_VERIFYHOST => $verify ? 2 : 0,
             CURLOPT_HTTPHEADER => $headers,
         ]);
+        if (function_exists('security_curl_set_ssl')) {
+            security_curl_set_ssl($ch);
+        } else {
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, $verify);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, $verify ? 2 : 0);
+        }
         $ok = curl_exec($ch);
         $errno = curl_errno($ch);
         $err = curl_error($ch);
@@ -681,17 +691,62 @@ function updater_safe_extract(ZipArchive $zip, $extractDir)
                 return false;
             }
         }
-        // 目标路径必须落在 extractDir 下
+        // 目标路径必须落在 extractDir 下（写前用逻辑规范化校验，防 ZIP Slip）
         $target = $extractDir . '/' . $name;
+        // 规范化：折叠 ./ 与多余斜杠，拒绝逃逸
+        $norm = str_replace('\\', '/', $target);
+        $segments = [];
+        foreach (explode('/', $norm) as $seg) {
+            if ($seg === '' || $seg === '.') {
+                continue;
+            }
+            if ($seg === '..') {
+                return false;
+            }
+            $segments[] = $seg;
+        }
+        // Windows 盘符段保留
+        $logical = (preg_match('#^[A-Za-z]:#', $extractDir) ? '' : '/') . implode('/', $segments);
+        // 以 base 前缀约束（大小写不敏感比较 Windows）
+        $baseCmp = strtolower($baseReal);
+        $logCmp = strtolower(str_replace('\\', '/', $logical));
+        // 还原 target 为 extractDir + name 的安全拼接
+        $safeRel = [];
+        foreach (explode('/', $name) as $seg) {
+            if ($seg === '' || $seg === '.') {
+                continue;
+            }
+            if ($seg === '..') {
+                return false;
+            }
+            $safeRel[] = $seg;
+        }
+        $target = $extractDir . '/' . implode('/', $safeRel);
         $isDir = substr($name, -1) === '/';
         if ($isDir) {
             if (!is_dir($target) && !@mkdir($target, 0755, true) && !is_dir($target)) {
+                return false;
+            }
+            $dirReal = realpath($target);
+            if ($dirReal === false) {
+                return false;
+            }
+            $dirReal = str_replace('\\', '/', $dirReal);
+            if (strpos($dirReal, $baseReal . '/') !== 0 && $dirReal !== $baseReal) {
                 return false;
             }
             continue;
         }
         $parent = dirname($target);
         if (!is_dir($parent) && !@mkdir($parent, 0755, true) && !is_dir($parent)) {
+            return false;
+        }
+        $parentReal = realpath($parent);
+        if ($parentReal === false) {
+            return false;
+        }
+        $parentReal = str_replace('\\', '/', $parentReal);
+        if (strpos($parentReal, $baseReal . '/') !== 0 && $parentReal !== $baseReal) {
             return false;
         }
         $content = $zip->getFromIndex($i);
@@ -701,9 +756,10 @@ function updater_safe_extract(ZipArchive $zip, $extractDir)
         if (@file_put_contents($target, $content) === false) {
             return false;
         }
-        // 写后 realpath 校验（目录需已存在）
+        // 写后 realpath 校验
         $writtenReal = realpath($target);
         if ($writtenReal === false) {
+            @unlink($target);
             return false;
         }
         $writtenReal = str_replace('\\', '/', $writtenReal);
@@ -795,6 +851,206 @@ function updater_post_upgrade()
 }
 
 /**
+ * 本地安装所需环境（不依赖外网 / HTTP）
+ * @return array{ok:bool,message:string,items:array}
+ */
+function updater_local_env_check()
+{
+    $items = [];
+    $zipOk = class_exists('ZipArchive');
+    $items[] = [
+        'name' => 'PHP ZipArchive',
+        'ok' => $zipOk,
+        'detail' => $zipOk ? '可用' : '未启用 zip 扩展，无法解压更新包',
+    ];
+    $tmp = updater_tmp_dir();
+    $tmpOk = is_dir($tmp) && is_writable($tmp);
+    $items[] = [
+        'name' => '临时目录可写',
+        'ok' => $tmpOk,
+        'detail' => $tmp,
+    ];
+    $rootOk = is_writable(ROOT_PATH);
+    $items[] = [
+        'name' => '站点根目录可写',
+        'ok' => $rootOk,
+        'detail' => $rootOk ? ROOT_PATH : '请给站点根目录写权限以便覆盖程序文件',
+    ];
+    $ok = true;
+    $fail = [];
+    foreach ($items as $it) {
+        if (empty($it['ok'])) {
+            $ok = false;
+            $fail[] = $it['name'] . '：' . ($it['detail'] ?? '');
+        }
+    }
+    return [
+        'ok' => $ok,
+        'message' => $ok ? '本地安装环境就绪' : ('环境不满足：' . implode('；', $fail)),
+        'items' => $items,
+    ];
+}
+
+/**
+ * 从本地 zip 安装更新包（在线下载与后台导入共用）
+ * @param string $zipFile 已落盘的 zip 绝对路径
+ * @param array $meta 可选版本元数据 version/commit/sha/channel/source
+ * @param bool $deleteZip 完成后是否删除 zip
+ * @return array{ok:bool,message:string,detail:array}
+ */
+function updater_install_from_zip($zipFile, array $meta = [], $deleteZip = true)
+{
+    @set_time_limit(300);
+    $zipFile = (string) $zipFile;
+    if ($zipFile === '' || !is_file($zipFile)) {
+        return ['ok' => false, 'message' => '更新包文件不存在', 'detail' => []];
+    }
+    if (!class_exists('ZipArchive')) {
+        if ($deleteZip) {
+            @unlink($zipFile);
+        }
+        return ['ok' => false, 'message' => '服务器未启用 ZipArchive 扩展', 'detail' => []];
+    }
+
+    $size = @filesize($zipFile);
+    if ($size === false || $size < 64) {
+        if ($deleteZip) {
+            @unlink($zipFile);
+        }
+        return ['ok' => false, 'message' => '更新包过小或无法读取', 'detail' => ['size' => $size]];
+    }
+    // 最大 80MB，防止异常上传
+    if ($size > 80 * 1024 * 1024) {
+        if ($deleteZip) {
+            @unlink($zipFile);
+        }
+        return ['ok' => false, 'message' => '更新包过大（超过 80MB）', 'detail' => ['size' => $size]];
+    }
+
+    $tmp = updater_tmp_dir();
+    $extractDir = $tmp . '/extract_' . date('YmdHis') . '_' . mt_rand(1000, 9999);
+
+    $zip = new ZipArchive();
+    $zopen = $zip->open($zipFile);
+    if ($zopen !== true) {
+        if ($deleteZip) {
+            @unlink($zipFile);
+        }
+        return ['ok' => false, 'message' => '无法打开更新包（Zip 错误码 ' . $zopen . '）', 'detail' => []];
+    }
+    if (!@mkdir($extractDir, 0755, true) && !is_dir($extractDir)) {
+        $zip->close();
+        if ($deleteZip) {
+            @unlink($zipFile);
+        }
+        return ['ok' => false, 'message' => '无法创建解压目录', 'detail' => []];
+    }
+    // Zip Slip 防护：先校验所有条目路径，再安全解压
+    $extractOk = updater_safe_extract($zip, $extractDir);
+    $zip->close();
+    if (!$extractOk) {
+        updater_rrmdir($extractDir);
+        if ($deleteZip) {
+            @unlink($zipFile);
+        }
+        return ['ok' => false, 'message' => '解压更新包失败（含非法路径或写入错误）', 'detail' => []];
+    }
+
+    $root = updater_find_package_root($extractDir);
+    if ($root === null) {
+        updater_rrmdir($extractDir);
+        if ($deleteZip) {
+            @unlink($zipFile);
+        }
+        return ['ok' => false, 'message' => '更新包结构无效（找不到项目根）', 'detail' => []];
+    }
+
+    // 简单完整性：必须含 bootstrap
+    if (!is_file($root . '/includes/bootstrap.php')) {
+        updater_rrmdir($extractDir);
+        if ($deleteZip) {
+            @unlink($zipFile);
+        }
+        return ['ok' => false, 'message' => '更新包不完整：缺少 includes/bootstrap.php', 'detail' => []];
+    }
+
+    $copy = updater_copy_package($root);
+    $notes = updater_post_upgrade();
+
+    // 更新本地版本号
+    $local = updater_local_version();
+    $newVer = [
+        'version' => (string) ($meta['version'] ?? $local['version'] ?? '0.0.0'),
+        'commit' => (string) ($meta['commit'] ?? ''),
+        'build' => date('Ymd'),
+    ];
+    if ($newVer['commit'] === '' && !empty($meta['sha'])) {
+        $newVer['commit'] = substr((string) $meta['sha'], 0, 7);
+    }
+    // 若包内带 version.php 以包为准
+    $pkgVerFile = $root . '/config/version.php';
+    if (is_file($pkgVerFile)) {
+        $pv = include $pkgVerFile;
+        if (is_array($pv)) {
+            if (!empty($pv['version'])) {
+                $newVer['version'] = (string) $pv['version'];
+            }
+            if (!empty($pv['name'])) {
+                $newVer['name'] = (string) $pv['name'];
+            }
+            if (!empty($pv['commit']) && $newVer['commit'] === '') {
+                $newVer['commit'] = (string) $pv['commit'];
+            }
+        }
+    }
+    if ($newVer['commit'] === '') {
+        $newVer['commit'] = 'import-' . date('YmdHis');
+    }
+    updater_write_version($newVer);
+
+    // 清理
+    updater_rrmdir($extractDir);
+    if ($deleteZip) {
+        @unlink($zipFile);
+    }
+    // 清远程检测缓存
+    $cacheMeta = updater_tmp_dir() . '/remote_meta.json';
+    if (is_file($cacheMeta)) {
+        @unlink($cacheMeta);
+    }
+
+    $ok = !empty($copy['ok']) && empty($copy['errors']);
+    $msg = $copy['message'] ?? '';
+    if (!empty($copy['errors'])) {
+        $msg .= '；部分错误：' . implode('；', array_slice($copy['errors'], 0, 5));
+    }
+    $source = (string) ($meta['source'] ?? 'package');
+    if ($ok) {
+        $msg = ($source === 'upload' ? '导入更新完成。' : '系统更新完成。') . $msg;
+    } else {
+        $msg = '更新未完全成功。' . $msg;
+    }
+
+    return [
+        'ok' => $ok,
+        'message' => $msg,
+        'detail' => [
+            'copied' => $copy['copied'] ?? 0,
+            'skipped' => $copy['skipped'] ?? 0,
+            'errors' => $copy['errors'] ?? [],
+            'version' => $newVer,
+            'notes' => $notes,
+            'source' => $source,
+            'remote' => [
+                'version' => $meta['version'] ?? ($newVer['version'] ?? ''),
+                'commit' => $meta['commit'] ?? ($newVer['commit'] ?? ''),
+                'channel' => $meta['channel'] ?? '',
+            ],
+        ],
+    ];
+}
+
+/**
  * 执行在线更新
  * @param array|null $remote 可选，缺省则重新检测
  * @return array{ok:bool,message:string,detail:array}
@@ -830,115 +1086,91 @@ function updater_apply(?array $remote = null)
 
     $tmp = updater_tmp_dir();
     $zipFile = $tmp . '/package_' . date('YmdHis') . '.zip';
-    $extractDir = $tmp . '/extract_' . date('YmdHis');
 
     $dl = updater_http_download($zipUrl, $zipFile, 180);
     if (empty($dl['ok'])) {
         return ['ok' => false, 'message' => '下载更新包失败：' . ($dl['error'] ?? ''), 'detail' => $dl];
     }
 
-    if (!class_exists('ZipArchive')) {
-        @unlink($zipFile);
-        return ['ok' => false, 'message' => '服务器未启用 ZipArchive 扩展', 'detail' => []];
-    }
-
-    $zip = new ZipArchive();
-    $zopen = $zip->open($zipFile);
-    if ($zopen !== true) {
-        @unlink($zipFile);
-        return ['ok' => false, 'message' => '无法打开更新包（Zip 错误码 ' . $zopen . '）', 'detail' => []];
-    }
-    if (!@mkdir($extractDir, 0755, true) && !is_dir($extractDir)) {
-        $zip->close();
-        @unlink($zipFile);
-        return ['ok' => false, 'message' => '无法创建解压目录', 'detail' => []];
-    }
-    // Zip Slip 防护：先校验所有条目路径，再安全解压
-    $extractOk = updater_safe_extract($zip, $extractDir);
-    $zip->close();
-    if (!$extractOk) {
-        updater_rrmdir($extractDir);
-        @unlink($zipFile);
-        return ['ok' => false, 'message' => '解压更新包失败（含非法路径或写入错误）', 'detail' => []];
-    }
-
-    $root = updater_find_package_root($extractDir);
-    if ($root === null) {
-        updater_rrmdir($extractDir);
-        @unlink($zipFile);
-        return ['ok' => false, 'message' => '更新包结构无效（找不到项目根）', 'detail' => []];
-    }
-
-    // 简单完整性：必须含 bootstrap
-    if (!is_file($root . '/includes/bootstrap.php')) {
-        updater_rrmdir($extractDir);
-        @unlink($zipFile);
-        return ['ok' => false, 'message' => '更新包不完整：缺少 includes/bootstrap.php', 'detail' => []];
-    }
-
-    $copy = updater_copy_package($root);
-    $notes = updater_post_upgrade();
-
-    // 更新本地版本号
-    $newVer = [
-        'version' => (string) ($remote['version'] ?? updater_local_version()['version']),
-        'commit' => (string) ($remote['commit'] ?? substr((string) ($remote['sha'] ?? ''), 0, 7)),
-        'build' => date('Ymd'),
+    $meta = [
+        'version' => $remote['version'] ?? '',
+        'commit' => $remote['commit'] ?? '',
+        'sha' => $remote['sha'] ?? '',
+        'channel' => $remote['channel'] ?? '',
+        'source' => 'github',
     ];
-    // 若包内带 version.php 以包为准再合并 commit
-    $pkgVerFile = $root . '/config/version.php';
-    if (is_file($pkgVerFile)) {
-        $pv = include $pkgVerFile;
-        if (is_array($pv)) {
-            if (!empty($pv['version'])) {
-                $newVer['version'] = (string) $pv['version'];
-            }
-            if (!empty($pv['name'])) {
-                $newVer['name'] = (string) $pv['name'];
-            }
+    return updater_install_from_zip($zipFile, $meta, true);
+}
+
+/**
+ * 后台导入本地 zip 更新包
+ * @param array $file $_FILES['package'] 结构
+ * @return array{ok:bool,message:string,detail:array}
+ */
+function updater_apply_from_upload(array $file)
+{
+    @set_time_limit(300);
+    $env = updater_local_env_check();
+    if (empty($env['ok'])) {
+        return ['ok' => false, 'message' => $env['message'], 'detail' => ['env' => $env]];
+    }
+
+    $err = (int) ($file['error'] ?? UPLOAD_ERR_NO_FILE);
+    if ($err !== UPLOAD_ERR_OK) {
+        $map = [
+            UPLOAD_ERR_INI_SIZE => '文件超过 php.ini 限制（upload_max_filesize）',
+            UPLOAD_ERR_FORM_SIZE => '文件超过表单限制',
+            UPLOAD_ERR_PARTIAL => '文件仅部分上传',
+            UPLOAD_ERR_NO_FILE => '未选择更新包文件',
+            UPLOAD_ERR_NO_TMP_DIR => '服务器缺少临时目录',
+            UPLOAD_ERR_CANT_WRITE => '无法写入临时文件',
+            UPLOAD_ERR_EXTENSION => '扩展阻止了文件上传',
+        ];
+        return ['ok' => false, 'message' => $map[$err] ?? ('上传失败，错误码 ' . $err), 'detail' => ['error' => $err]];
+    }
+
+    $tmpName = (string) ($file['tmp_name'] ?? '');
+    $origName = (string) ($file['name'] ?? '');
+    $size = (int) ($file['size'] ?? 0);
+    if ($tmpName === '' || !is_uploaded_file($tmpName)) {
+        return ['ok' => false, 'message' => '无效的上传文件', 'detail' => []];
+    }
+    if ($size <= 0 || $size > 80 * 1024 * 1024) {
+        return ['ok' => false, 'message' => '更新包大小无效（需大于 0 且不超过 80MB）', 'detail' => ['size' => $size]];
+    }
+
+    $ext = strtolower(pathinfo($origName, PATHINFO_EXTENSION));
+    if ($ext !== 'zip') {
+        return ['ok' => false, 'message' => '仅支持 .zip 更新包', 'detail' => ['name' => $origName]];
+    }
+
+    // 简单魔数校验 PK\x03\x04 / PK\x05\x06 / PK\x07\x08
+    $fh = @fopen($tmpName, 'rb');
+    $magic = $fh ? (string) fread($fh, 4) : '';
+    if ($fh) {
+        fclose($fh);
+    }
+    if ($magic === '' || strpos($magic, 'PK') !== 0) {
+        return ['ok' => false, 'message' => '文件不是有效的 ZIP 包', 'detail' => []];
+    }
+
+    $dest = updater_tmp_dir() . '/upload_' . date('YmdHis') . '_' . mt_rand(1000, 9999) . '.zip';
+    if (!@move_uploaded_file($tmpName, $dest)) {
+        // 回退：部分环境 is_uploaded_file 通过但 move 失败时尝试 copy
+        if (!@copy($tmpName, $dest)) {
+            return ['ok' => false, 'message' => '无法保存上传的更新包到临时目录', 'detail' => []];
         }
-    }
-    if (!empty($remote['commit']) || !empty($remote['sha'])) {
-        $newVer['commit'] = (string) ($remote['commit'] ?? substr((string) $remote['sha'], 0, 7));
-    }
-    updater_write_version($newVer);
-
-    // 清理
-    updater_rrmdir($extractDir);
-    @unlink($zipFile);
-    // 清远程检测缓存
-    $meta = updater_tmp_dir() . '/remote_meta.json';
-    if (is_file($meta)) {
-        @unlink($meta);
+        @unlink($tmpName);
     }
 
-    $ok = !empty($copy['ok']) || ($copy['copied'] ?? 0) > 0;
-    $msg = $copy['message'] ?? '';
-    if (!empty($copy['errors'])) {
-        $msg .= '；部分错误：' . implode('；', array_slice($copy['errors'], 0, 5));
-    }
-    if ($ok) {
-        $msg = '系统更新完成。' . $msg;
-    } else {
-        $msg = '更新未完全成功。' . $msg;
-    }
-
-    return [
-        'ok' => $ok,
-        'message' => $msg,
-        'detail' => [
-            'copied' => $copy['copied'] ?? 0,
-            'skipped' => $copy['skipped'] ?? 0,
-            'errors' => $copy['errors'] ?? [],
-            'version' => $newVer,
-            'notes' => $notes,
-            'remote' => [
-                'version' => $remote['version'] ?? '',
-                'commit' => $remote['commit'] ?? '',
-                'channel' => $remote['channel'] ?? '',
-            ],
-        ],
+    $meta = [
+        'source' => 'upload',
+        'version' => '',
+        'commit' => '',
+        'channel' => 'import',
+        'original_name' => $origName,
     ];
+    return updater_install_from_zip($dest, $meta, true);
 }
 
 /**

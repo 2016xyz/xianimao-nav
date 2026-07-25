@@ -115,6 +115,9 @@ function smtp_save_config(array $input)
     if ($cfg['port'] <= 0) {
         $cfg['port'] = 465;
     }
+    if ($cfg['enabled'] === '1' && !smtp_host_allowed($cfg['host'])) {
+        return false;
+    }
 
     // 主存储：仅 secret_smtp（不再双写明文 smtp_pass 等分散密钥键）
     // 非敏感开关仍写分散 key 供旧逻辑/迁移探测（不含密码）
@@ -124,6 +127,18 @@ function smtp_save_config(array $input)
     $ok = setting_set('login_email', $cfg['login_email']) && $ok;
     $ok = setting_set('smtp_updated_at', $cfg['updated_at']) && $ok;
     return $ok;
+}
+
+function smtp_host_allowed($host)
+{
+    $host = trim((string) $host);
+    if ($host === '') {
+        return false;
+    }
+    if (function_exists('security_hostname_is_public')) {
+        return security_hostname_is_public($host);
+    }
+    return !in_array(strtolower($host), ['localhost', '127.0.0.1', '::1'], true);
 }
 
 function smtp_is_ready()
@@ -207,6 +222,9 @@ function mailer_send($to, $subject, $htmlBody, $textBody = '')
     if ($cfg['host'] === '' || $cfg['from_email'] === '') {
         return ['ok' => false, 'message' => 'SMTP 主机或发件人未配置'];
     }
+    if (!smtp_host_allowed($cfg['host'])) {
+        return ['ok' => false, 'message' => 'SMTP 主机必须是可解析的公网地址'];
+    }
     $to = trim((string) $to);
     if ($to === '' || !filter_var($to, FILTER_VALIDATE_EMAIL)) {
         return ['ok' => false, 'message' => '收件人邮箱无效'];
@@ -271,11 +289,13 @@ function mailer_send($to, $subject, $htmlBody, $textBody = '')
             20,
             STREAM_CLIENT_CONNECT,
             stream_context_create([
-                'ssl' => [
-                    'verify_peer' => function_exists('security_ssl_verify_peer') ? security_ssl_verify_peer() : true,
-                    'verify_peer_name' => function_exists('security_ssl_verify_peer') ? security_ssl_verify_peer() : true,
-                    'allow_self_signed' => function_exists('security_ssl_verify_peer') ? !security_ssl_verify_peer() : false,
-                ],
+                'ssl' => function_exists('security_stream_ssl_opts')
+                    ? security_stream_ssl_opts()
+                    : [
+                        'verify_peer' => function_exists('security_ssl_verify_peer') ? security_ssl_verify_peer() : true,
+                        'verify_peer_name' => function_exists('security_ssl_verify_peer') ? security_ssl_verify_peer() : true,
+                        'allow_self_signed' => function_exists('security_ssl_verify_peer') ? !security_ssl_verify_peer() : false,
+                    ],
             ])
         );
         if (!$fp) {
@@ -565,6 +585,9 @@ function mailer_form_code_ip_throttle($record = false)
 
 function mailer_site_name()
 {
+    if (function_exists('site_brand_name')) {
+        return site_brand_name();
+    }
     try {
         $content = load_content();
         $n = trim((string) ($content['site']['name'] ?? ''));
@@ -573,7 +596,7 @@ function mailer_site_name()
         }
     } catch (Throwable $e) {
     }
-    return '夏尼猫网址导航';
+    return function_exists('site_brand_default_name') ? site_brand_default_name() : '网址导航';
 }
 
 function mailer_admin_inbox()
@@ -850,6 +873,5 @@ function mailer_notify_row($label, $value)
         . '<td style="padding:12px 20px;vertical-align:top;font-size:14px;color:#1e293b;border-bottom:1px solid #f1f5f9;line-height:1.6;word-break:break-all;">' . $value . '</td>'
         . '</tr>';
 }
-
 
 

@@ -86,13 +86,17 @@ function oauth_http_post($url, array $fields, $timeout = 20, array $headers = []
             CURLOPT_FOLLOWLOCATION => true,
             CURLOPT_TIMEOUT => $timeout,
             CURLOPT_CONNECTTIMEOUT => 8,
-            CURLOPT_SSL_VERIFYPEER => function_exists('security_ssl_verify_peer') ? security_ssl_verify_peer() : true,
-            CURLOPT_SSL_VERIFYHOST => (function_exists('security_ssl_verify_peer') && !security_ssl_verify_peer()) ? 0 : 2,
             CURLOPT_POST => true,
             CURLOPT_POSTFIELDS => $body,
             CURLOPT_HTTPHEADER => $headers,
             CURLOPT_USERAGENT => 'RainbowNav-OAuth/1.0',
         ]);
+        if (function_exists('security_curl_set_ssl')) {
+            security_curl_set_ssl($ch);
+        } else {
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, function_exists('security_ssl_verify_peer') ? security_ssl_verify_peer() : true);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, (function_exists('security_ssl_verify_peer') && !security_ssl_verify_peer()) ? 0 : 2);
+        }
         $resp = curl_exec($ch);
         $errno = curl_errno($ch);
         $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -112,10 +116,12 @@ function oauth_http_post($url, array $fields, $timeout = 20, array $headers = []
             'timeout' => $timeout,
             'ignore_errors' => true,
         ],
-        'ssl' => [
-            'verify_peer' => function_exists('security_ssl_verify_peer') ? security_ssl_verify_peer() : true,
-            'verify_peer_name' => function_exists('security_ssl_verify_peer') ? security_ssl_verify_peer() : true,
-        ],
+        'ssl' => function_exists('security_stream_ssl_opts')
+            ? security_stream_ssl_opts()
+            : [
+                'verify_peer' => function_exists('security_ssl_verify_peer') ? security_ssl_verify_peer() : true,
+                'verify_peer_name' => function_exists('security_ssl_verify_peer') ? security_ssl_verify_peer() : true,
+            ],
     ]);
     $resp = @file_get_contents($url, false, $ctx);
     $code = 0;
@@ -741,8 +747,17 @@ function hot_52pojie_secret_backup_file()
  */
 function hot_52pojie_normalize_cred(array $data)
 {
+    $cookie = (string) ($data['cookie'] ?? '');
+    if (function_exists('hot_normalize_cookie_header')) {
+        $cookie = hot_normalize_cookie_header($cookie);
+    } else {
+        $cookie = trim(str_replace(["\r", "\n", "\0"], '', $cookie));
+        if (strncmp($cookie, "\xEF\xBB\xBF", 3) === 0) {
+            $cookie = substr($cookie, 3);
+        }
+    }
     $out = [
-        'cookie' => trim((string) ($data['cookie'] ?? '')),
+        'cookie' => $cookie,
         'username' => trim((string) ($data['username'] ?? '')),
         'mode' => trim((string) ($data['mode'] ?? 'auto')),
         'updated_at' => trim((string) ($data['updated_at'] ?? '')),
@@ -943,12 +958,22 @@ function oauth_52pojie_handle_callback(array $input)
     if ($stateAt > 0 && (time() - $stateAt) > 900) {
         return ['ok' => false, 'message' => '授权已超时，请重试'];
     }
+    if (function_exists('hot_normalize_cookie_header')) {
+        $cookie = hot_normalize_cookie_header($cookie);
+    } else {
+        $cookie = trim(str_replace(["\r", "\n", "\0"], '', $cookie));
+    }
     if ($cookie === '') {
         return ['ok' => false, 'message' => '请提供登录后的 Cookie'];
     }
-    // 简单校验：Discuz 常见 cookie 字段
-    if (stripos($cookie, 'htVC_') === false && stripos($cookie, 'auth') === false && stripos($cookie, 'sid') === false) {
-        // 仍允许保存，仅提示
+    // Discuz 登录态关键字段
+    $hasAuth = preg_match('/htVC_\d+_auth=/i', $cookie) === 1 || stripos($cookie, '_auth=') !== false;
+    $hasSalt = preg_match('/htVC_\d+_saltkey=/i', $cookie) === 1 || stripos($cookie, 'saltkey=') !== false;
+    if (!$hasAuth || !$hasSalt) {
+        return [
+            'ok' => false,
+            'message' => 'Cookie 缺少关键字段（htVC_*_auth / htVC_*_saltkey），请在已登录状态下从 F12 → Network 复制完整 Cookie',
+        ];
     }
 
     $saved = hot_52pojie_save_credentials([
@@ -988,49 +1013,88 @@ function oauth_52pojie_handle_callback(array $input)
 function hot_52pojie_test_auth()
 {
     $cred = hot_52pojie_credentials();
-    if ($cred['cookie'] === '') {
+    $cookie = function_exists('hot_normalize_cookie_header')
+        ? hot_normalize_cookie_header($cred['cookie'] ?? '')
+        : trim((string) ($cred['cookie'] ?? ''));
+    if ($cookie === '') {
         return ['ok' => false, 'message' => '尚未配置吾爱 Cookie'];
     }
-    $url = 'https://www.52pojie.cn/home.php?mod=space';
-    $body = hot_http_get($url, 15, [
-        'Cookie: ' . $cred['cookie'],
+
+    $hasAuth = preg_match('/htVC_\d+_auth=/i', $cookie) === 1 || stripos($cookie, '_auth=') !== false;
+    $hasSalt = preg_match('/htVC_\d+_saltkey=/i', $cookie) === 1 || stripos($cookie, 'saltkey=') !== false;
+    if (!$hasAuth || !$hasSalt) {
+        return [
+            'ok' => false,
+            'message' => 'Cookie 不完整：请从浏览器复制完整 Cookie，需包含 htVC_*_auth 与 htVC_*_saltkey',
+        ];
+    }
+
+    $hdr = [
+        'Cookie: ' . $cookie,
         'Referer: https://www.52pojie.cn/',
-        'Accept: text/html',
-    ]);
-    if (!$body) {
-        return ['ok' => false, 'message' => '无法访问吾爱（网络或拦截）'];
-    }
-    $body = hot_to_utf8($body, 'GBK');
-    $username = '';
-    if (preg_match('/title="访问我的空间">([^<]+)</u', $body, $m)) {
-        $username = trim(html_entity_decode($m[1], ENT_QUOTES, 'UTF-8'));
-    } elseif (preg_match('/欢迎您，?\s*<[^>]+>([^<]+)/u', $body, $m)) {
-        $username = trim(html_entity_decode($m[1], ENT_QUOTES, 'UTF-8'));
-    }
-    if (strpos($body, '需要先登录') !== false || strpos($body, 'member.php?mod=logging') !== false && $username === '') {
-        // 仍可能部分页面能访问
-        if ($username === '') {
-            return ['ok' => false, 'message' => 'Cookie 可能无效或已过期'];
-        }
-    }
-    // 再试热榜页
+        'Accept: text/html,application/xhtml+xml',
+    ];
+
+    // 优先测热榜页（实际抓取目标）
     $rank = hot_http_get(
         'https://www.52pojie.cn/misc.php?mod=ranklist&type=thread&view=heats&orderby=today',
-        15,
-        ['Cookie: ' . $cred['cookie'], 'Referer: https://www.52pojie.cn/', 'Accept: text/html']
+        20,
+        $hdr
     );
-    $rankOk = $rank && stripos($rank, 'thread-') !== false;
+    if (!$rank) {
+        $home = hot_http_get('https://www.52pojie.cn/', 15, $hdr);
+        if (!$home) {
+            return [
+                'ok' => false,
+                'message' => '无法访问吾爱（服务器需启用 curl/openssl，或站点拦截/网络不通）',
+            ];
+        }
+        return ['ok' => false, 'message' => '能打开首页但热榜页无响应，请稍后重试'];
+    }
+
+    $rankUtf = function_exists('hot_to_utf8') ? hot_to_utf8($rank, 'GBK') : $rank;
+    $rankOk = (bool) preg_match('/thread-\d+-/i', $rankUtf);
+
+    $body = hot_http_get('https://www.52pojie.cn/home.php?mod=space', 20, $hdr);
+    $username = '';
+    if ($body) {
+        $body = function_exists('hot_to_utf8') ? hot_to_utf8($body, 'GBK') : $body;
+        $patterns = [
+            '/title="访问我的空间">\s*([^<]+?)\s*</u',
+            '/欢迎您[，,\s]*<a[^>]*>\s*([^<]+?)\s*</u',
+            '/欢迎您[，,\s]*([^\s<>]{2,30})/u',
+            '/id="um"[^>]*>[\s\S]{0,400}?<strong>\s*([^<]+?)\s*<\/strong>/u',
+            '/cite[^>]*>\s*([^<]{2,30})\s*<\/cite>/u',
+            '/space-uid-\d+\.html[^>]*>\s*([^<]{2,30})\s*</u',
+        ];
+        foreach ($patterns as $p) {
+            if (preg_match($p, $body, $m)) {
+                $username = trim(html_entity_decode($m[1], ENT_QUOTES, 'UTF-8'));
+                $username = preg_replace('/\s+/u', ' ', $username) ?? $username;
+                if ($username !== '' && (function_exists('mb_strlen') ? mb_strlen($username) : strlen($username)) < 40) {
+                    break;
+                }
+                $username = '';
+            }
+        }
+        $needLogin = (strpos($body, '需要先登录') !== false)
+            || ((strpos($body, 'member.php?mod=logging') !== false) && $username === '');
+        if ($needLogin && $username === '' && !$rankOk) {
+            return ['ok' => false, 'message' => 'Cookie 可能无效或已过期，请重新登录吾爱后复制 Cookie'];
+        }
+    }
 
     if ($username !== '' || $rankOk) {
         return [
             'ok' => true,
             'message' => $username !== ''
-                ? ('登录有效：' . $username . ($rankOk ? '，热榜页可访问' : ''))
+                ? ('登录有效：' . $username . ($rankOk ? '，热榜页可访问' : '（热榜解析待刷新）'))
                 : 'Cookie 可用，已能访问热榜页',
             'username' => $username,
         ];
     }
-    return ['ok' => false, 'message' => '未能确认登录态，请重新授权'];
+
+    return ['ok' => false, 'message' => '未能确认登录态：请确认 Cookie 含 auth/saltkey 且未过期后重试'];
 }
 
 function mb_substr_safe($str, $start, $len)

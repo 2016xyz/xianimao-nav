@@ -5,11 +5,11 @@ require_once __DIR__ . '/includes/page_layout.php';
 $data = load_site_data();
 $GLOBALS['data'] = $data;
 $site = $data['site'] ?? [];
-$siteName = $site['name'] ?? '夏尼猫网址导航';
+$siteName = function_exists('site_brand_name') ? site_brand_name($site) : ($site['name'] ?? '网址导航');
 $subtitle = trim((string) ($site['subtitle'] ?? ''));
 $about = trim((string) ($site['about_html'] ?? ''));
 if ($about === '') {
-    $about = '<p>夏尼猫网址导航汇集实用工具、开源项目与优质站点，帮助你更快找到需要的资源。</p>';
+    $about = '<p>' . e($siteName) . '汇集实用工具、开源项目与优质站点，帮助你更快找到需要的资源。</p>';
 }
 
 page_layout_start('关于我们', [

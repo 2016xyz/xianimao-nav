@@ -150,6 +150,19 @@ function hot_board_catalog()
             'fallback_url' => 'https://www.zhihu.com/hot',
             'default_enabled' => false,
         ],
+        'github' => [
+            'id' => 'github',
+            'name' => 'GitHub 今日热门',
+            'short' => 'GitHub',
+            'label' => 'Trending',
+            'logo' => 'assets/images/github.png',
+            'provider' => 'github',
+            'fetch_url' => 'https://github.com/trending',
+            'since' => 'daily',
+            'limit' => 25,
+            'fallback_url' => 'https://github.com/trending',
+            'default_enabled' => true,
+        ],
     ];
 }
 
@@ -774,13 +787,107 @@ function hot_linuxdo_test_auth()
 }
 
 /**
- * HTTP GET
+ * 规范化 Cookie 请求头（去 BOM / 换行 / 控制符）
+ */
+function hot_normalize_cookie_header($cookie)
+{
+    $cookie = (string) $cookie;
+    if (strncmp($cookie, "\xEF\xBB\xBF", 3) === 0) {
+        $cookie = substr($cookie, 3);
+    }
+    $cookie = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]+/', '', $cookie) ?? $cookie;
+    $cookie = str_replace(["\r", "\n"], '', $cookie);
+    $cookie = trim($cookie);
+    $cookie = preg_replace('/\s*;\s*/', '; ', $cookie) ?? $cookie;
+    if (strlen($cookie) > 12000) {
+        $cookie = substr($cookie, 0, 12000);
+    }
+    return $cookie;
+}
+
+/**
+ * 出站 URL 是否允许（公网 http/https）
+ */
+function hot_http_url_allowed($url)
+{
+    $url = trim((string) $url);
+    if ($url === '' || !preg_match('#^https?://#i', $url)) {
+        return false;
+    }
+    if (preg_match('#^\s*(javascript|data|vbscript|file)\s*:#iu', $url)) {
+        return false;
+    }
+    $parts = @parse_url($url);
+    if (!is_array($parts) || empty($parts['host'])) {
+        return false;
+    }
+    if (!empty($parts['user']) || !empty($parts['pass'])) {
+        return false;
+    }
+    if (function_exists('security_outbound_url_allowed')) {
+        return security_outbound_url_allowed($url, ['http', 'https']);
+    }
+    $host = strtolower((string) $parts['host']);
+    return $host !== '' && $host !== 'localhost' && $host !== 'metadata.google.internal';
+}
+
+function hot_stream_response_code(array $headers)
+{
+    foreach ($headers as $line) {
+        if (is_string($line) && preg_match('#^HTTP/\S+\s+(\d{3})#i', $line, $m)) {
+            return (int) $m[1];
+        }
+    }
+    return 0;
+}
+
+function hot_stream_location(array $headers, $baseUrl)
+{
+    foreach ($headers as $line) {
+        if (!is_string($line) || stripos($line, 'Location:') !== 0) {
+            continue;
+        }
+        $loc = trim(substr($line, 9));
+        if ($loc === '') {
+            return '';
+        }
+        if (preg_match('#^https?://#i', $loc)) {
+            return $loc;
+        }
+        $parts = @parse_url($baseUrl);
+        if (!is_array($parts) || empty($parts['scheme']) || empty($parts['host'])) {
+            return '';
+        }
+        $prefix = $parts['scheme'] . '://' . $parts['host'] . (!empty($parts['port']) ? ':' . (int) $parts['port'] : '');
+        if (strpos($loc, '/') === 0) {
+            return $prefix . $loc;
+        }
+        $path = isset($parts['path']) ? preg_replace('#/[^/]*$#', '/', (string) $parts['path']) : '/';
+        return $prefix . $path . $loc;
+    }
+    return '';
+}
+
+/**
+ * HTTP GET（Discuz 等站点常 302，需跟随跳转；Cookie 自动清洗）
  * @return string|null
  */
 function hot_http_get($url, $timeout = 12, array $headers = [])
 {
+    $url = trim((string) $url);
+    if (!hot_http_url_allowed($url)) {
+        return null;
+    }
+
+    foreach ($headers as $i => $h) {
+        if (is_string($h) && stripos($h, 'Cookie:') === 0) {
+            $raw = trim(substr($h, strlen('Cookie:')));
+            $headers[$i] = 'Cookie: ' . hot_normalize_cookie_header($raw);
+        }
+    }
+
     $defaultHeaders = [
-        'Accept: application/json,text/html,application/xhtml+xml,*/*;q=0.8',
+        'Accept: text/html,application/xhtml+xml,application/json,*/*;q=0.8',
         'Accept-Language: zh-CN,zh;q=0.9,en;q=0.8',
     ];
     $headers = array_merge($defaultHeaders, $headers);
@@ -789,43 +896,75 @@ function hot_http_get($url, $timeout = 12, array $headers = [])
         $ch = curl_init($url);
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
+            // 吾爱 home.php?mod=space / 登录跳转依赖 302
             CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_MAXREDIRS => 5,
             CURLOPT_TIMEOUT => $timeout,
             CURLOPT_CONNECTTIMEOUT => 8,
-            CURLOPT_SSL_VERIFYPEER => function_exists('security_ssl_verify_peer') ? security_ssl_verify_peer() : true,
-            CURLOPT_SSL_VERIFYHOST => (function_exists('security_ssl_verify_peer') && !security_ssl_verify_peer()) ? 0 : 2,
             CURLOPT_ENCODING => '',
             CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
             CURLOPT_HTTPHEADER => $headers,
+            CURLOPT_PROTOCOLS => defined('CURLPROTO_HTTP') ? (CURLPROTO_HTTP | CURLPROTO_HTTPS) : 3,
+            CURLOPT_REDIR_PROTOCOLS => defined('CURLPROTO_HTTP') ? (CURLPROTO_HTTP | CURLPROTO_HTTPS) : 3,
         ]);
+        if (function_exists('security_curl_set_ssl')) {
+            security_curl_set_ssl($ch);
+        } else {
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, function_exists('security_ssl_verify_peer') ? security_ssl_verify_peer() : true);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, (function_exists('security_ssl_verify_peer') && !security_ssl_verify_peer()) ? 0 : 2);
+        }
         $body = curl_exec($ch);
         $errno = curl_errno($ch);
         $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $finalUrl = (string) curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
         curl_close($ch);
+        if ($finalUrl !== '' && !hot_http_url_allowed($finalUrl)) {
+            return null;
+        }
         if ($errno === 0 && $body !== false && $body !== '' && $code < 400) {
             return $body;
         }
-        // 部分站点 403 仍可能有 body，交上层判断
         if ($errno === 0 && $body !== false && $body !== '') {
             return $body;
         }
     }
 
-    $headerStr = implode("\r\n", $headers) . "\r\n";
-    $ctx = stream_context_create([
-        'http' => [
-            'method' => 'GET',
-            'timeout' => $timeout,
-            'header' => $headerStr . "User-Agent: Mozilla/5.0\r\n",
-            'ignore_errors' => true,
-        ],
-        'ssl' => [
-            'verify_peer' => function_exists('security_ssl_verify_peer') ? security_ssl_verify_peer() : true,
-            'verify_peer_name' => function_exists('security_ssl_verify_peer') ? security_ssl_verify_peer() : true,
-        ],
-    ]);
-    $body = @file_get_contents($url, false, $ctx);
-    return ($body === false || $body === '') ? null : $body;
+    $current = $url;
+    for ($i = 0; $i <= 5; $i++) {
+        if (!hot_http_url_allowed($current)) {
+            return null;
+        }
+        $headerStr = implode("\r\n", $headers) . "\r\n";
+        $ctx = stream_context_create([
+            'http' => [
+                'method' => 'GET',
+                'timeout' => $timeout,
+                'header' => $headerStr . "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\r\n",
+                'ignore_errors' => true,
+                'follow_location' => 0,
+                'max_redirects' => 0,
+            ],
+            'ssl' => function_exists('security_stream_ssl_opts')
+                ? security_stream_ssl_opts()
+                : [
+                    'verify_peer' => function_exists('security_ssl_verify_peer') ? security_ssl_verify_peer() : true,
+                    'verify_peer_name' => function_exists('security_ssl_verify_peer') ? security_ssl_verify_peer() : true,
+                ],
+        ]);
+        $body = @file_get_contents($current, false, $ctx);
+        $respHeaders = isset($http_response_header) && is_array($http_response_header) ? $http_response_header : [];
+        $code = hot_stream_response_code($respHeaders);
+        if (in_array($code, [301, 302, 303, 307, 308], true)) {
+            $next = hot_stream_location($respHeaders, $current);
+            if ($next === '' || !hot_http_url_allowed($next)) {
+                return null;
+            }
+            $current = $next;
+            continue;
+        }
+        return ($body === false || $body === '') ? null : $body;
+    }
+    return null;
 }
 
 function hot_to_utf8($text, $charset = '')
@@ -913,6 +1052,8 @@ function hot_build_fallback_url($sourceId, $title)
             return 'https://www.v2ex.com/?tab=hot';
         case 'sspai':
             return 'https://sspai.com/search/post/' . $q;
+        case 'github':
+            return 'https://github.com/search?q=' . $q . '&type=repositories';
         default:
             return 'https://www.baidu.com/s?wd=' . $q;
     }
@@ -1223,6 +1364,225 @@ function hot_fetch_v2ex(array $source)
     return [$items, date('Y-m-d H:i:s')];
 }
 
+
+/**
+ * 解析 GitHub Trending 页面 HTML
+ * @return array{0:array,1:string}
+ */
+function hot_parse_github_trending_html($body, $limit = 25)
+{
+    $items = [];
+    $rank = 1;
+    $body = (string) $body;
+    if ($body === '') {
+        return [$items, ''];
+    }
+
+    $chunks = [];
+    if (preg_match_all(
+        '#<article[^>]*class="[^"]*Box-row[^"]*"[^>]*>([\s\S]*?)</article>#i',
+        $body,
+        $m
+    )) {
+        $chunks = $m[1];
+    } elseif (preg_match_all(
+        '#class="[^"]*Box-row[^"]*"[^>]*>([\s\S]*?)(?=<article|class="[^"]*Box-row|</main>)#i',
+        $body,
+        $m2
+    )) {
+        $chunks = $m2[1];
+    }
+
+    foreach ($chunks as $chunk) {
+        if ($rank > $limit) {
+            break;
+        }
+        $title = '';
+        $url = '';
+        if (preg_match('#<h2[^>]*>[\s\S]*?<a[^>]+href="(/[^"\s]+)"[^>]*>([\s\S]*?)</a>#i', $chunk, $hm)) {
+            $path = trim(html_entity_decode($hm[1], ENT_QUOTES, 'UTF-8'));
+            $path = preg_replace('#\?.*$#', '', $path) ?? $path;
+            $label = trim(preg_replace('/\s+/', ' ', strip_tags($hm[2])) ?? '');
+            $label = html_entity_decode($label, ENT_QUOTES, 'UTF-8');
+            $label = preg_replace('/\s+/', ' ', $label) ?? $label;
+            $label = preg_replace('#\s*/\s*#', '/', $label) ?? $label;
+            if ($path !== '' && preg_match('#^/[^/]+/[^/]+$#', $path)) {
+                $url = 'https://github.com' . $path;
+                $title = $label !== '' ? $label : ltrim($path, '/');
+            }
+        }
+        if ($title === '' && preg_match('#href="(/[A-Za-z0-9_.\-]+/[A-Za-z0-9_.\-]+)"#', $chunk, $pm)) {
+            $path = $pm[1];
+            if (!preg_match('#/(stargazers|network|issues|pulls|actions|security|pulse|graphs)#', $path)) {
+                $url = 'https://github.com' . $path;
+                $title = ltrim($path, '/');
+            }
+        }
+        if ($title === '') {
+            continue;
+        }
+
+        $heat = '—';
+        if (preg_match('#([\d,]+)\s+stars?\s+today#i', $chunk, $sm)) {
+            $n = (int) str_replace(',', '', $sm[1]);
+            $heat = $n > 0 ? ('+' . hot_format_heat($n) . '★/日') : '—';
+        } elseif (preg_match('#([\d,]+)\s+stars?\s+this\s+week#i', $chunk, $smw)) {
+            $n = (int) str_replace(',', '', $smw[1]);
+            $heat = $n > 0 ? ('+' . hot_format_heat($n) . '★/周') : '—';
+        } elseif (preg_match('#([\d,]+)\s+stars?\s+this\s+month#i', $chunk, $smm)) {
+            $n = (int) str_replace(',', '', $smm[1]);
+            $heat = $n > 0 ? ('+' . hot_format_heat($n) . '★/月') : '—';
+        } elseif (preg_match('#aria-label="([0-9,]+)\s+stars?"#i', $chunk, $sm2)) {
+            $heat = hot_format_heat((int) str_replace(',', '', $sm2[1])) . '★';
+        } elseif (preg_match('#/stargazers[^>]*>\s*([\d,.kKmM]+)#i', $chunk, $sm3)) {
+            $heat = trim($sm3[1]) . '★';
+        }
+
+        $item = hot_normalize_item([
+            'title' => $title,
+            'url' => $url,
+            'heat' => $heat,
+        ], $rank, 'github');
+        if ($item) {
+            if ($heat !== '—' && $heat !== '') {
+                $item['heat'] = $heat;
+            }
+            $items[] = $item;
+            $rank++;
+        }
+    }
+
+    if (empty($items) && preg_match_all(
+        '#href="(https://github\.com)?(/[A-Za-z0-9_.\-]+/[A-Za-z0-9_.\-]+)"#',
+        $body,
+        $all,
+        PREG_SET_ORDER
+    )) {
+        $seen = [];
+        foreach ($all as $row) {
+            if ($rank > $limit) {
+                break;
+            }
+            $path = $row[2];
+            if (isset($seen[$path])) {
+                continue;
+            }
+            if (preg_match('#^/(settings|topics|collections|events|features|enterprise|pricing|about|login|signup|orgs|marketplace|explore|sponsors|customer-stories|readme|trending|search|notifications|account|sessions|site|github-copilot)/#i', $path . '/')) {
+                continue;
+            }
+            if (substr_count($path, '/') !== 2) {
+                continue;
+            }
+            if (preg_match('#/(stargazers|network|issues|pulls|actions|security|pulse|graphs|commits|tree|blob|wiki|releases|packages|discussions|projects|checks|runs)/#', $path . '/')) {
+                continue;
+            }
+            $seen[$path] = true;
+            $item = hot_normalize_item([
+                'title' => ltrim($path, '/'),
+                'url' => 'https://github.com' . $path,
+                'heat' => '—',
+            ], $rank, 'github');
+            if ($item) {
+                $items[] = $item;
+                $rank++;
+            }
+        }
+    }
+
+    return [$items, date('Y-m-d H:i:s')];
+}
+
+/**
+ * 备用：GitHub Search API（近 7 日按 star 排序，作兜底）
+ */
+function hot_fetch_github_search_api($limit = 25)
+{
+    $since = date('Y-m-d', time() - 7 * 86400);
+    $url = 'https://api.github.com/search/repositories?q='
+        . rawurlencode('created:>=' . $since)
+        . '&sort=stars&order=desc&per_page=' . min(30, max(5, (int) $limit));
+    $body = hot_http_get($url, 15, [
+        'Accept: application/vnd.github+json',
+        'X-GitHub-Api-Version: 2022-11-28',
+    ]);
+    if (!$body) {
+        return [[], ''];
+    }
+    $json = json_decode($body, true);
+    if (!is_array($json) || empty($json['items']) || !is_array($json['items'])) {
+        return [[], ''];
+    }
+    $items = [];
+    $rank = 1;
+    foreach ($json['items'] as $row) {
+        if ($rank > $limit) {
+            break;
+        }
+        if (!is_array($row) || empty($row['full_name'])) {
+            continue;
+        }
+        $stars = $row['stargazers_count'] ?? 0;
+        $item = hot_normalize_item([
+            'title' => $row['full_name'],
+            'url' => $row['html_url'] ?? ('https://github.com/' . $row['full_name']),
+            'heat' => hot_format_heat($stars) . '★',
+        ], $rank, 'github');
+        if ($item) {
+            $item['heat'] = hot_format_heat($stars) . '★';
+            $items[] = $item;
+            $rank++;
+        }
+    }
+    return [$items, date('Y-m-d H:i:s')];
+}
+
+/**
+ * GitHub Trending（优先解析 github.com/trending，失败则 Search API 兜底）
+ */
+function hot_fetch_github(array $source)
+{
+    $limit = (int) ($source['limit'] ?? 25);
+    if ($limit < 5) {
+        $limit = 5;
+    }
+    if ($limit > 50) {
+        $limit = 50;
+    }
+    $since = strtolower(trim((string) ($source['since'] ?? 'daily')));
+    if (!in_array($since, ['daily', 'weekly', 'monthly'], true)) {
+        $since = 'daily';
+    }
+    $base = $source['fetch_url'] ?? 'https://github.com/trending';
+    $base = preg_replace('#\?.*$#', '', (string) $base) ?: 'https://github.com/trending';
+    $url = $base . (strpos($base, '?') === false ? '?' : '&') . 'since=' . $since;
+
+    $headers = [
+        'Accept: text/html,application/xhtml+xml',
+        'Accept-Language: en-US,en;q=0.9,zh-CN;q=0.8',
+        'Cache-Control: no-cache',
+        'Referer: https://github.com/',
+    ];
+    $body = hot_http_get($url, 18, $headers);
+    if ($body) {
+        list($items, $ts) = hot_parse_github_trending_html($body, $limit);
+        if (!empty($items)) {
+            return [$items, $ts];
+        }
+    }
+
+    if (strpos($url, 'since=') !== false) {
+        $body2 = hot_http_get($base, 18, $headers);
+        if ($body2) {
+            list($items, $ts) = hot_parse_github_trending_html($body2, $limit);
+            if (!empty($items)) {
+                return [$items, $ts];
+            }
+        }
+    }
+
+    return hot_fetch_github_search_api($limit);
+}
+
 /**
  * Discuz 排行榜页面解析（吾爱破解）
  * 若后台已通过 OAuth 式授权保存 Cookie，则带登录态请求
@@ -1253,8 +1613,13 @@ function hot_fetch_discuz(array $source)
     if ($id === '52pojie' && function_exists('hot_52pojie_has_auth') && hot_52pojie_has_auth()) {
         $cred = hot_52pojie_credentials();
         if (!empty($cred['cookie'])) {
-            $headers[] = 'Cookie: ' . $cred['cookie'];
-            $usedAuth = true;
+            $ck = function_exists('hot_normalize_cookie_header')
+                ? hot_normalize_cookie_header($cred['cookie'])
+                : trim((string) $cred['cookie']);
+            if ($ck !== '') {
+                $headers[] = 'Cookie: ' . $ck;
+                $usedAuth = true;
+            }
         }
     }
 
@@ -1363,6 +1728,9 @@ function hot_fetch_source(array $source)
                 break;
             case 'discuz':
                 list($items, $updateTime) = hot_fetch_discuz($source);
+                break;
+            case 'github':
+                list($items, $updateTime) = hot_fetch_github($source);
                 break;
             case 'ikunpay':
             default:

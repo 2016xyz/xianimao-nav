@@ -60,6 +60,7 @@
 
       var node = tpl.content.cloneNode(true);
       tbody.appendChild(node);
+      refreshRowMoveState(tbody);
 
       var last = tbody.querySelector('tr:last-child input[name="name[]"]');
       if (last) last.focus();
@@ -80,8 +81,9 @@
     if (!tr) return;
     var tbody = tr.parentElement;
     tr.remove();
+    refreshRowMoveState(tbody);
 
-    if (tbody && tbody.querySelectorAll('tr').length === 0) {
+    if (tbody && tbody.querySelectorAll('tr:not(.empty-row)').length === 0) {
       var empty = document.createElement('tr');
       empty.className = 'empty-row';
       var colCount = 5;
@@ -90,12 +92,54 @@
       if (theadRow && theadRow.children && theadRow.children.length) {
         colCount = theadRow.children.length;
       }
-      empty.innerHTML =
-        '<td colspan="' +
-        colCount +
-        '" class="muted" style="text-align:center;padding:28px;">暂无数据，请点击添加</td>';
+      var cell = document.createElement('td');
+      cell.colSpan = colCount;
+      cell.className = 'muted';
+      cell.style.textAlign = 'center';
+      cell.style.padding = '28px';
+      cell.textContent = '暂无数据，请点击添加';
+      empty.appendChild(cell);
       tbody.appendChild(empty);
     }
+  });
+
+  // 表格行上移 / 下移（保存时按当前 DOM 顺序写入）
+  function getDataRows(tbody) {
+    if (!tbody) return [];
+    return Array.prototype.slice.call(tbody.querySelectorAll('tr')).filter(function (tr) {
+      return !tr.classList.contains('empty-row');
+    });
+  }
+
+  function refreshRowMoveState(tbody) {
+    var rows = getDataRows(tbody);
+    rows.forEach(function (tr, idx) {
+      var up = tr.querySelector('[data-move-row="up"]');
+      var down = tr.querySelector('[data-move-row="down"]');
+      if (up) up.disabled = idx === 0;
+      if (down) down.disabled = idx === rows.length - 1;
+    });
+  }
+
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-move-row]');
+    if (!btn) return;
+    e.preventDefault();
+    var dir = btn.getAttribute('data-move-row');
+    var tr = btn.closest('tr');
+    if (!tr) return;
+    var tbody = tr.parentElement;
+    if (!tbody) return;
+    if (dir === 'up' && tr.previousElementSibling && !tr.previousElementSibling.classList.contains('empty-row')) {
+      tbody.insertBefore(tr, tr.previousElementSibling);
+    } else if (dir === 'down' && tr.nextElementSibling && !tr.nextElementSibling.classList.contains('empty-row')) {
+      tbody.insertBefore(tr.nextElementSibling, tr);
+    }
+    refreshRowMoveState(tbody);
+  });
+
+  document.querySelectorAll('tbody#rows, #editable-table tbody').forEach(function (tbody) {
+    refreshRowMoveState(tbody);
   });
 
   // 自营站点：AI 生成介绍

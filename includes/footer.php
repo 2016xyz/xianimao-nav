@@ -4,7 +4,12 @@ if (!isset($data)) {
     $data = load_site_data();
 }
 $site = $data['site'] ?? [];
-$footerText = $site['footer'] ?? ('© ' . date('Y') . ' 夏尼猫网址导航 All Rights Reserved.');
+$footerText = trim((string) ($site['footer'] ?? ''));
+if ($footerText === '') {
+    $footerText = function_exists('site_brand_footer_default')
+        ? site_brand_footer_default($site)
+        : ('© ' . date('Y') . ' ' . (function_exists('site_brand_name') ? site_brand_name($site) : '网址导航'));
+}
 $footerExtra = trim((string) ($site['footer_extra'] ?? ''));
 $footerVis = footer_builtin_visibility($site);
 $footerLinks = normalize_footer_links($site['footer_links'] ?? []);
@@ -29,13 +34,15 @@ $hasFooterLinks = $footerVis['apply'] || $footerVis['message'] || $footerVis['ab
             <?php foreach ($footerLinks as $fl): ?>
                 <?php
                 $fname = trim((string) ($fl['name'] ?? ''));
-                $furl = trim((string) ($fl['url'] ?? ''));
+                $furl = function_exists('security_url')
+                    ? security_url(trim((string) ($fl['url'] ?? '')), true)
+                    : trim((string) ($fl['url'] ?? ''));
                 if ($fname === '' || $furl === '') {
                     continue;
                 }
                 $external = preg_match('#^https?://#i', $furl);
                 ?>
-                <a href="<?php echo e($furl); ?>"<?php echo $external ? ' target="_blank" rel="noopener"' : ''; ?>>
+                <a href="<?php echo e($furl); ?>"<?php echo $external ? ' target="_blank" rel="noopener noreferrer"' : ''; ?>>
                     <i class="bi bi-link-45deg"></i> <?php echo e($fname); ?>
                 </a>
             <?php endforeach; ?>
@@ -54,8 +61,8 @@ $hasFooterLinks = $footerVis['apply'] || $footerVis['message'] || $footerVis['ab
     <i class="bi bi-chevron-up"></i>
 </button>
 
-<script src="assets/js/jquery.min.js"></script>
-<script src="assets/js/bootstrap.bundle.min.js"></script>
-<script src="assets/js/main.js"></script>
+<script src="<?php echo e(asset_url('assets/js/jquery.min.js')); ?>"></script>
+<script src="<?php echo e(asset_url('assets/js/bootstrap.bundle.min.js')); ?>"></script>
+<script src="<?php echo e(asset_url('assets/js/main.js')); ?>"></script>
 </body>
 </html>

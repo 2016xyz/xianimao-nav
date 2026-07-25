@@ -12,7 +12,18 @@ define('INSTALL_LOCK_FILE', ROOT_PATH . '/config/install.lock');
 
 function is_installed()
 {
-    return is_file(INSTALL_LOCK_FILE) && is_file(DB_CONFIG_FILE);
+    // lock + database.php 同时存在视为已安装
+    if (is_file(INSTALL_LOCK_FILE) && is_file(DB_CONFIG_FILE)) {
+        return true;
+    }
+    // 仅有 database.php 且可加载有效配置时，也视为已安装（防止删 lock 重装）
+    if (is_file(DB_CONFIG_FILE)) {
+        $cfg = @include DB_CONFIG_FILE;
+        if (is_array($cfg) && !empty($cfg['database']) && !empty($cfg['username'])) {
+            return true;
+        }
+    }
+    return false;
 }
 
 /**
@@ -185,16 +196,22 @@ function install_run_schema(PDO $pdo)
 function install_seed(PDO $pdo, array $site, $adminUser, $adminPassHash)
 {
     // settings
+    $brand = function_exists('site_brand_default_name') ? site_brand_default_name() : '网址导航';
+    $name = trim((string) ($site['name'] ?? '')) !== '' ? trim((string) $site['name']) : $brand;
+    $footer = trim((string) ($site['footer'] ?? ''));
+    if ($footer === '') {
+        $footer = '© ' . date('Y') . ' ' . $name;
+    }
     $settings = [
-        'site_name' => $site['name'] ?? '夏尼猫网址导航',
+        'site_name' => $name,
         'site_subtitle' => $site['subtitle'] ?? '实用工具与优质站点聚合',
-        'site_footer' => $site['footer'] ?? ('© ' . date('Y') . ' 夏尼猫网址导航'),
+        'site_footer' => $footer,
         'show_friend_links' => '1',
         'enable_message' => '1',
-        'about_html' => '<p>夏尼猫网址导航汇集实用工具、开源项目与优质站点，帮助你更快找到需要的资源。</p>',
-        'contact_html' => '<p>如有合作、建议或问题，欢迎通过邮件 <a href="mailto:i@2016xlx.cn">i@2016xlx.cn</a> 或留言联系我们。</p>',
-        'contact_email' => 'i@2016xlx.cn',
-        'hot_boards_enabled' => json_encode(['weibo', '52pojie', 'bilibili', 'baidu', 'linuxdo'], JSON_UNESCAPED_UNICODE),
+        'about_html' => '<p>' . htmlspecialchars($name, ENT_QUOTES, 'UTF-8') . '汇集实用工具、开源项目与优质站点，帮助你更快找到需要的资源。</p>',
+        'contact_html' => '<p>如有合作、建议或问题，欢迎通过邮件或留言联系我们。</p>',
+        'contact_email' => '',
+        'hot_boards_enabled' => json_encode(['weibo', '52pojie', 'bilibili', 'baidu', 'linuxdo', 'github'], JSON_UNESCAPED_UNICODE),
     ];
     $stmt = $pdo->prepare('INSERT INTO settings (skey, svalue) VALUES (?, ?) ON DUPLICATE KEY UPDATE svalue = VALUES(svalue)');
     foreach ($settings as $k => $v) {
@@ -305,7 +322,7 @@ function install_seed(PDO $pdo, array $site, $adminUser, $adminPassHash)
 }
 
 /**
- * 写入 database.php 与 install.lock
+ * 写入 database.php
  */
 function install_write_config(array $dbCfg)
 {
@@ -323,7 +340,10 @@ function install_write_config(array $dbCfg)
     if (file_put_contents(DB_CONFIG_FILE, $php, LOCK_EX) === false) {
         throw new RuntimeException('无法写入 config/database.php，请检查 config 目录写权限');
     }
+}
 
+function install_write_lock()
+{
     $lock = "installed_at=" . date('Y-m-d H:i:s') . "\n";
     if (file_put_contents(INSTALL_LOCK_FILE, $lock, LOCK_EX) === false) {
         throw new RuntimeException('无法写入 config/install.lock');
@@ -345,10 +365,19 @@ function install_run(array $input)
         'charset' => 'utf8mb4',
     ];
 
+    $brand = function_exists('site_brand_default_name') ? site_brand_default_name() : '网址导航';
+    $siteNameIn = trim((string) ($input['site_name'] ?? ''));
+    if ($siteNameIn === '') {
+        $siteNameIn = $brand;
+    }
+    $siteFooterIn = trim((string) ($input['site_footer'] ?? ''));
+    if ($siteFooterIn === '') {
+        $siteFooterIn = '© ' . date('Y') . ' ' . $siteNameIn;
+    }
     $site = [
-        'name' => trim($input['site_name'] ?? '夏尼猫网址导航'),
+        'name' => $siteNameIn,
         'subtitle' => trim($input['site_subtitle'] ?? '实用工具与优质站点聚合'),
-        'footer' => trim($input['site_footer'] ?? ('© ' . date('Y') . ' 夏尼猫网址导航')),
+        'footer' => $siteFooterIn,
     ];
 
     $adminUser = trim($input['admin_user'] ?? 'admin');
@@ -357,6 +386,9 @@ function install_run(array $input)
 
     if ($db['database'] === '' || $db['username'] === '') {
         return ['ok' => false, 'message' => '请填写数据库名与用户名'];
+    }
+    if (strtolower($db['username']) === 'root' && $db['password'] === '') {
+        return ['ok' => false, 'message' => '出于安全考虑，不允许使用 root 空密码作为数据库账号'];
     }
     if ($site['name'] === '') {
         return ['ok' => false, 'message' => '站点名称不能为空'];
@@ -373,14 +405,14 @@ function install_run(array $input)
         return ['ok' => false, 'message' => '环境检测未通过，请先解决红色项'];
     }
 
-    // 先写配置+锁，降低「库已初始化却无配置」半安装态概率
+    $createDb = !empty($input['create_database']);
+
     try {
         install_write_config($db);
     } catch (Throwable $e) {
         return ['ok' => false, 'message' => $e->getMessage() . '（请先保证 config 目录可写）'];
     }
 
-    $createDb = !empty($input['create_database']);
     $test = install_test_db($db, $createDb);
     if (!$test['ok']) {
         @unlink(DB_CONFIG_FILE);
@@ -395,6 +427,7 @@ function install_run(array $input)
     try {
         install_run_schema($pdo);
     } catch (Throwable $e) {
+        @unlink(INSTALL_LOCK_FILE);
         return [
             'ok' => false,
             'message' => '创建数据表失败：' . $e->getMessage()
@@ -410,11 +443,18 @@ function install_run(array $input)
         if ($pdo->inTransaction()) {
             $pdo->rollBack();
         }
+        @unlink(INSTALL_LOCK_FILE);
         return [
             'ok' => false,
             'message' => '初始化数据失败：' . $e->getMessage()
                 . '。配置与表结构可能已存在，请检查后重试或手工完成种子数据。',
         ];
+    }
+
+    try {
+        install_write_lock();
+    } catch (Throwable $e) {
+        return ['ok' => false, 'message' => $e->getMessage() . '（数据库已初始化，请修复 config 目录写权限后重试）'];
     }
 
     return ['ok' => true, 'message' => '安装成功'];

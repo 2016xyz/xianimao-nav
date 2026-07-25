@@ -6,7 +6,7 @@ require_once __DIR__ . '/layout.php';
 $data = load_content();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (!csrf_verify($_POST['_csrf'] ?? '')) {
+    if (!verify_csrf()) {
         flash_set('error', '安全校验失败，请刷新后重试');
         redirect('projects.php');
     }
@@ -34,7 +34,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $projects = [];
 
     if (is_array($names)) {
+        $count = 0;
         foreach ($names as $i => $name) {
+            if ($count >= 100) {
+                break;
+            }
             $name = security_clean_text($name, 80);
             $url = security_url(trim((string) ($urls[$i] ?? '')), false);
             $desc = security_clean_text($descs[$i] ?? '', 300);
@@ -53,6 +57,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'tag' => $tag,
                 'desc' => $desc,
             ];
+            $count++;
         }
     }
 
@@ -78,7 +83,7 @@ $items = $data['projects'] ?? [];
     <div class="panel-head">
         <div>
             <h2>开源项目管理</h2>
-            <p class="muted">前台「开源项目」区块展示，支持添加、修改、删除。删除请点行末「删除」后保存。</p>
+            <p class="muted">前台「开源项目」区块展示，支持添加、修改、删除，可用 ↑↓ 调整显示顺序后保存。</p>
         </div>
         <button type="button" class="btn btn-primary" data-add-row data-template="project-row-tpl">＋ 添加项目</button>
     </div>
@@ -91,6 +96,7 @@ $items = $data['projects'] ?? [];
             <table class="data-table">
                 <thead>
                     <tr>
+                        <th style="width:52px">排序</th>
                         <th style="width:16%">名称</th>
                         <th style="width:24%">链接</th>
                         <th style="width:12%">标签</th>
@@ -101,13 +107,17 @@ $items = $data['projects'] ?? [];
                 <tbody id="rows">
                     <?php if (empty($items)): ?>
                         <tr class="empty-row">
-                            <td colspan="5" class="muted" style="text-align:center;padding:28px;">
+                            <td colspan="6" class="muted" style="text-align:center;padding:28px;">
                                 暂无项目，点击右上角「添加项目」开始
                             </td>
                         </tr>
                     <?php endif; ?>
                     <?php foreach ($items as $item): ?>
                         <tr>
+                            <td class="row-order">
+                                <button type="button" class="btn btn-secondary btn-sm" data-move-row="up" title="上移">↑</button>
+                                <button type="button" class="btn btn-secondary btn-sm" data-move-row="down" title="下移">↓</button>
+                            </td>
                             <td>
                                 <input type="hidden" name="id[]" value="<?php echo e($item['id'] ?? ''); ?>">
                                 <input type="text" name="name[]" value="<?php echo e($item['name'] ?? ''); ?>" required placeholder="项目名称">
@@ -139,6 +149,10 @@ $items = $data['projects'] ?? [];
 
 <template id="project-row-tpl">
     <tr>
+        <td class="row-order">
+            <button type="button" class="btn btn-secondary btn-sm" data-move-row="up" title="上移">↑</button>
+            <button type="button" class="btn btn-secondary btn-sm" data-move-row="down" title="下移">↓</button>
+        </td>
         <td>
             <input type="hidden" name="id[]" value="">
             <input type="text" name="name[]" value="" required placeholder="项目名称">
@@ -157,4 +171,8 @@ $items = $data['projects'] ?? [];
         </td>
     </tr>
 </template>
+<style>
+.row-order { display:flex; flex-direction:column; gap:4px; align-items:center; white-space:nowrap; }
+.row-order .btn { min-width: 34px; padding-left: 8px; padding-right: 8px; }
+</style>
 <?php admin_layout_end(); ?>

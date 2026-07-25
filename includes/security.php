@@ -207,6 +207,10 @@ function security_url($url, $allowRelative = true)
     if (strpos($url, '//') === 0) {
         return '';
     }
+    $decodedUrl = rawurldecode($url);
+    if (strpos($url, '..') !== false || strpos($decodedUrl, '..') !== false) {
+        return '';
+    }
     if ($allowRelative) {
         // 使用 ~ 作定界符，避免 URL 中的 # 提前结束模式
         if (strpos($url, '/') === 0 && strpos($url, '//') !== 0) {
@@ -305,18 +309,473 @@ function security_digits($value, $len = 6)
 }
 
 /**
- * IP 字符串清洗
+ * 客户端 IP（默认 REMOTE_ADDR；仅 trust_proxy 时解析 X-Forwarded-For 最左可信链末端）
+ */
+function security_client_ip()
+{
+    $remote = trim((string) ($_SERVER['REMOTE_ADDR'] ?? ''));
+    if ($remote !== '' && filter_var($remote, FILTER_VALIDATE_IP)) {
+        // 默认不信代理头，避免伪造
+        if (!security_trust_proxy()) {
+            return $remote;
+        }
+        $xff = (string) ($_SERVER['HTTP_X_FORWARDED_FOR'] ?? '');
+        if ($xff !== '') {
+            $parts = array_map('trim', explode(',', $xff));
+            // 取最左侧公网/合法 IP（反代追加在右侧）
+            foreach ($parts as $p) {
+                if ($p !== '' && filter_var($p, FILTER_VALIDATE_IP)) {
+                    return $p;
+                }
+            }
+        }
+        $xr = trim((string) ($_SERVER['HTTP_X_REAL_IP'] ?? ''));
+        if ($xr !== '' && filter_var($xr, FILTER_VALIDATE_IP)) {
+            return $xr;
+        }
+        return $remote;
+    }
+    return '';
+}
+
+function security_ip_is_public($ip)
+{
+    $ip = trim((string) $ip);
+    if ($ip === '' || !filter_var($ip, FILTER_VALIDATE_IP)) {
+        return false;
+    }
+    if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
+        return false;
+    }
+    if (strpos($ip, '169.254.') === 0) {
+        return false;
+    }
+    if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {
+        $lower = strtolower($ip);
+        if (strpos($lower, 'fe80:') === 0 || strpos($lower, 'fc') === 0 || strpos($lower, 'fd') === 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+function security_hostname_is_public($host)
+{
+    $host = strtolower(trim((string) $host, " \t\n\r\0\x0B[]"));
+    if ($host === '' || $host === 'localhost' || $host === 'metadata.google.internal') {
+        return false;
+    }
+    if (filter_var($host, FILTER_VALIDATE_IP)) {
+        return security_ip_is_public($host);
+    }
+    if (!preg_match('#^[a-z0-9]([a-z0-9.\-]*[a-z0-9])?$#i', $host)) {
+        return false;
+    }
+    $ips = [];
+    if (function_exists('dns_get_record')) {
+        $a = @dns_get_record($host, DNS_A);
+        if (is_array($a)) {
+            foreach ($a as $r) {
+                if (!empty($r['ip'])) {
+                    $ips[] = $r['ip'];
+                }
+            }
+        }
+        $aaaa = @dns_get_record($host, DNS_AAAA);
+        if (is_array($aaaa)) {
+            foreach ($aaaa as $r) {
+                if (!empty($r['ipv6'])) {
+                    $ips[] = $r['ipv6'];
+                }
+            }
+        }
+    }
+    if ($ips === []) {
+        $resolved = @gethostbynamel($host);
+        if (is_array($resolved)) {
+            $ips = array_merge($ips, $resolved);
+        }
+    }
+    if ($ips === []) {
+        return false;
+    }
+    foreach (array_unique($ips) as $ip) {
+        if (!security_ip_is_public($ip)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+function security_outbound_url_allowed($url, array $schemes = ['https'])
+{
+    $url = trim((string) $url);
+    if ($url === '') {
+        return false;
+    }
+    $parts = @parse_url($url);
+    if (!is_array($parts) || empty($parts['scheme']) || empty($parts['host'])) {
+        return false;
+    }
+    $scheme = strtolower((string) $parts['scheme']);
+    if (!in_array($scheme, $schemes, true)) {
+        return false;
+    }
+    if (!empty($parts['user']) || !empty($parts['pass'])) {
+        return false;
+    }
+    return security_hostname_is_public((string) $parts['host']);
+}
+
+/**
+ * IP 字符串清洗；无参时取客户端 IP
  */
 function security_ip($ip = null)
 {
     if ($ip === null) {
-        $ip = (string) ($_SERVER['REMOTE_ADDR'] ?? '');
+        $ip = security_client_ip();
     }
     $ip = trim((string) $ip);
     if ($ip !== '' && filter_var($ip, FILTER_VALIDATE_IP)) {
         return $ip;
     }
     return '';
+}
+
+/**
+ * 搜索引擎 URL（允许 {q}/{query} 占位符，仍拒绝 javascript/data 等）
+ */
+function security_search_url($url)
+{
+    $url = security_strip_controls(trim((string) $url));
+    if ($url === '' || strlen($url) > 2000) {
+        return '';
+    }
+    if (preg_match('#^\s*(javascript|data|vbscript|file)\s*:#iu', $url)) {
+        return '';
+    }
+    if (strpos($url, '//') === 0 || !preg_match('#^https?://#i', $url)) {
+        return '';
+    }
+    if (preg_match('#[<>"\'\x00-\x1f]#', $url)) {
+        return '';
+    }
+    // 占位符替换后再解析主机
+    $test = str_replace(['{q}', '{query}', '{keyword}'], 'x', $url);
+    $parts = @parse_url($test);
+    if (!is_array($parts) || empty($parts['host'])) {
+        return '';
+    }
+    if (!preg_match('#^[A-Za-z0-9.\-]+$#', $parts['host'])) {
+        return '';
+    }
+    return $url;
+}
+
+/**
+ * 输出到 href / data-url 前的安全 URL（失败返回 #）
+ */
+function security_href($url, $allowRelative = true, $fallback = '#')
+{
+    $safe = security_url($url, $allowRelative);
+    return $safe !== '' ? $safe : $fallback;
+}
+
+/**
+ * 校验请求是否像同源提交（CSRF 纵深）
+ * 无 Origin/Referer 时不硬拒（兼容部分客户端），有则必须同源
+ */
+function security_request_same_origin()
+{
+    $host = strtolower((string) ($_SERVER['HTTP_HOST'] ?? ''));
+    if ($host === '') {
+        return true;
+    }
+    $check = static function ($url) use ($host) {
+        $url = trim((string) $url);
+        if ($url === '') {
+            return null;
+        }
+        $p = @parse_url($url);
+        if (!is_array($p) || empty($p['host'])) {
+            return false;
+        }
+        $h = strtolower((string) $p['host']);
+        if (!empty($p['port'])) {
+            $h .= ':' . (int) $p['port'];
+        }
+        // HTTP_HOST 可能含端口
+        return hash_equals($host, $h) || hash_equals(preg_replace('/:\d+$/', '', $host), preg_replace('/:\d+$/', '', $h));
+    };
+    $origin = $check($_SERVER['HTTP_ORIGIN'] ?? '');
+    if ($origin === false) {
+        return false;
+    }
+    if ($origin === true) {
+        return true;
+    }
+    $referer = $check($_SERVER['HTTP_REFERER'] ?? '');
+    if ($referer === false) {
+        return false;
+    }
+    return true;
+}
+
+/**
+ * 登录失败锁定：检查是否允许尝试
+ * @return array{ok:bool,message:string,remain:int}
+ */
+function security_login_guard($username)
+{
+    $username = strtolower(security_clean_text($username, 80));
+    $ip = security_client_ip();
+    $keyUser = 'login_fail_u_' . hash('sha256', $username !== '' ? $username : '-');
+    $keyIp = 'login_fail_ip_' . hash('sha256', $ip !== '' ? $ip : 'unknown');
+    $now = time();
+    $maxUser = 8;
+    $maxIp = 25;
+    $store = security_login_lock_load();
+
+    foreach ([['k' => $keyUser, 'max' => $maxUser, 'label' => '该账号'], ['k' => $keyIp, 'max' => $maxIp, 'label' => '当前 IP']] as $row) {
+        $st = $store[$row['k']] ?? null;
+        if (!is_array($st)) {
+            continue;
+        }
+        $until = (int) ($st['locked_until'] ?? 0);
+        if ($until > $now) {
+            $min = (int) ceil(($until - $now) / 60);
+            return [
+                'ok' => false,
+                'message' => $row['label'] . '登录失败次数过多，请 ' . max(1, $min) . ' 分钟后再试',
+                'remain' => 0,
+            ];
+        }
+        if ($until > 0 && $until <= $now) {
+            unset($store[$row['k']]);
+            security_login_lock_save($store);
+        }
+    }
+    $stU = $store[$keyUser] ?? ['count' => 0];
+    $remain = max(0, $maxUser - (int) ($stU['count'] ?? 0));
+    return ['ok' => true, 'message' => '', 'remain' => $remain];
+}
+
+/**
+ * 记录一次登录失败
+ */
+function security_login_fail($username)
+{
+    $username = strtolower(security_clean_text($username, 80));
+    $ip = security_client_ip();
+    $now = time();
+    $lockSec = 900;
+    $store = security_login_lock_load();
+    $specs = [
+        ['k' => 'login_fail_u_' . hash('sha256', $username !== '' ? $username : '-'), 'max' => 8],
+        ['k' => 'login_fail_ip_' . hash('sha256', $ip !== '' ? $ip : 'unknown'), 'max' => 25],
+    ];
+    foreach ($specs as $sp) {
+        $st = $store[$sp['k']] ?? ['count' => 0, 'first' => $now];
+        if (!is_array($st)) {
+            $st = ['count' => 0, 'first' => $now];
+        }
+        if (!empty($st['first']) && ($now - (int) $st['first']) > 3600) {
+            $st = ['count' => 0, 'first' => $now];
+        }
+        $st['count'] = (int) ($st['count'] ?? 0) + 1;
+        $st['last'] = $now;
+        if ($st['count'] >= $sp['max']) {
+            $st['locked_until'] = $now + $lockSec;
+        }
+        $store[$sp['k']] = $st;
+    }
+    security_login_lock_save($store);
+}
+
+/**
+ * 登录成功后清除失败计数，并轮换 CSRF
+ */
+function security_login_success($username = '')
+{
+    $username = strtolower(security_clean_text($username, 80));
+    $ip = security_client_ip();
+    $store = security_login_lock_load();
+    unset($store['login_fail_u_' . hash('sha256', $username !== '' ? $username : '-')], $store['login_fail_ip_' . hash('sha256', $ip !== '' ? $ip : 'unknown')]);
+    security_login_lock_save($store);
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+
+function security_login_lock_file()
+{
+    $dir = defined('DATA_PATH') ? DATA_PATH . '/cache' : dirname(__DIR__) . '/data/cache';
+    if (!is_dir($dir)) {
+        @mkdir($dir, 0755, true);
+    }
+    return $dir . '/login_lock.json';
+}
+
+function security_login_lock_load()
+{
+    $file = security_login_lock_file();
+    if (!is_file($file)) {
+        return [];
+    }
+    $json = @file_get_contents($file);
+    $data = json_decode((string) $json, true);
+    return is_array($data) ? $data : [];
+}
+
+function security_login_lock_save(array $data)
+{
+    $now = time();
+    foreach ($data as $k => $row) {
+        if (!is_array($row)) {
+            unset($data[$k]);
+            continue;
+        }
+        $until = (int) ($row['locked_until'] ?? 0);
+        $last = (int) ($row['last'] ?? $row['first'] ?? 0);
+        if ($until > 0 && $until <= $now) {
+            unset($data[$k]);
+        } elseif ($until <= 0 && $last > 0 && ($now - $last) > 86400) {
+            unset($data[$k]);
+        }
+    }
+    return @file_put_contents(security_login_lock_file(), json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT), LOCK_EX) !== false;
+}
+
+/**
+ * 消毒站点内容中的外链（加载 JSON/DB 后统一调用，防存储型伪链）
+ * @param array $data
+ * @return array
+ */
+function security_sanitize_site_content(array $data)
+{
+    $listKeys = [
+        'engines' => true,   // 允许搜索占位符
+        'shortcuts' => false,
+        'sites' => false,
+        'projects' => false,
+        'tools' => false,
+        'links' => false,
+    ];
+    foreach ($listKeys as $key => $isSearch) {
+        if (empty($data[$key]) || !is_array($data[$key])) {
+            continue;
+        }
+        $clean = [];
+        foreach ($data[$key] as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $urlRaw = trim((string) ($row['url'] ?? ''));
+            if ($urlRaw === '') {
+                continue;
+            }
+            if ($isSearch) {
+                $url = security_search_url($urlRaw);
+                if ($url === '') {
+                    $url = security_url($urlRaw, false);
+                }
+            } else {
+                $url = security_url($urlRaw, false);
+            }
+            if ($url === '') {
+                continue;
+            }
+            $row['url'] = $url;
+            if (isset($row['name'])) {
+                $row['name'] = security_clean_text($row['name'], 120);
+            }
+            if (isset($row['desc'])) {
+                $row['desc'] = security_clean_text($row['desc'], 500);
+            }
+            if (isset($row['tag'])) {
+                $row['tag'] = security_clean_text($row['tag'], 40);
+            }
+            $clean[] = $row;
+        }
+        $data[$key] = $clean;
+    }
+    if (!empty($data['site']) && is_array($data['site'])) {
+        // 文本字段截断，防异常大 payload
+        foreach (['name', 'subtitle', 'footer', 'footer_extra', 'seo_title', 'seo_keywords', 'seo_description', 'seo_author'] as $sk) {
+            if (isset($data['site'][$sk])) {
+                $data['site'][$sk] = security_clean_text($data['site'][$sk], $sk === 'seo_description' || $sk === 'footer_extra' ? 2000 : 300);
+            }
+        }
+        if (isset($data['site']['seo_canonical'])) {
+            $data['site']['seo_canonical'] = security_url((string) $data['site']['seo_canonical'], true);
+        }
+        if (isset($data['site']['seo_og_image'])) {
+            $data['site']['seo_og_image'] = security_url((string) $data['site']['seo_og_image'], true);
+        }
+        if (isset($data['site']['hero_bg'])) {
+            $hb = (string) $data['site']['hero_bg'];
+            // 仅允许站内上传路径或 http(s)
+            if ($hb !== '' && !preg_match('#^assets/images/uploads/[a-zA-Z0-9._-]+$#', $hb)) {
+                $data['site']['hero_bg'] = security_url($hb, true);
+            }
+        }
+        if (isset($data['site']['footer_links']) && function_exists('normalize_footer_links')) {
+            $data['site']['footer_links'] = normalize_footer_links($data['site']['footer_links']);
+        } elseif (isset($data['site']['footer_links']) && is_array($data['site']['footer_links'])) {
+            $fl = [];
+            foreach ($data['site']['footer_links'] as $item) {
+                if (!is_array($item)) {
+                    continue;
+                }
+                $n = security_clean_text($item['name'] ?? '', 80);
+                $u = security_url(trim((string) ($item['url'] ?? '')), true);
+                if ($n !== '' && $u !== '') {
+                    $fl[] = ['name' => $n, 'url' => $u];
+                }
+            }
+            $data['site']['footer_links'] = $fl;
+        }
+        if (isset($data['site']['about_html'])) {
+            $data['site']['about_html'] = security_sanitize_html($data['site']['about_html']);
+        }
+        if (isset($data['site']['contact_html'])) {
+            $data['site']['contact_html'] = security_sanitize_html($data['site']['contact_html']);
+        }
+        if (isset($data['site']['seo_head_html']) && function_exists('security_sanitize_head_html')) {
+            $data['site']['seo_head_html'] = security_sanitize_head_html($data['site']['seo_head_html']);
+        }
+    }
+    return $data;
+}
+
+/**
+ * 站内相对跳转白名单（防开放重定向）
+ */
+function security_safe_redirect_target($url, $fallback = 'index.php')
+{
+    $url = trim((string) $url);
+    $fallback = $fallback !== '' ? $fallback : 'index.php';
+    if ($url === '') {
+        return $fallback;
+    }
+    // 拒绝绝对 URL、协议相对、反斜杠、控制字符
+    if (preg_match('#^(https?:)?//#i', $url) || strpos($url, '\\') !== false) {
+        return $fallback;
+    }
+    if (preg_match('#[\x00-\x1f\x7f]#', $url)) {
+        return $fallback;
+    }
+    // 仅允许相对路径：字母数字 _-./?&=%# 与 .php
+    if (!preg_match('~^[a-zA-Z0-9_./?&=%\-#]+$~', $url)) {
+        return $fallback;
+    }
+    $decodedUrl = rawurldecode($url);
+    if (strpos($url, '..') !== false || strpos($decodedUrl, '..') !== false) {
+        return $fallback;
+    }
+    // 禁止跳到敏感路径
+    if (preg_match('#(^|/)(config|data|includes|scripts)(/|$)#i', $url)) {
+        return $fallback;
+    }
+    return $url;
 }
 
 /**

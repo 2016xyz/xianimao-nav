@@ -69,11 +69,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     // 合并写入，保留 site 上其它扩展字段，避免整表覆盖丢失
+    $newName = security_clean_text($_POST['name'] ?? '', 80) ?: site_brand_default_name();
+    $newShort = security_clean_text($_POST['short_name'] ?? '', 8);
+    $newFooter = security_clean_text($_POST['footer'] ?? '', 300);
+    if ($newFooter === '') {
+        $newFooter = '© ' . date('Y') . ' ' . $newName;
+    }
+    $seoAuthor = security_clean_text($_POST['seo_author'] ?? '', 80);
+    if ($seoAuthor === '') {
+        $seoAuthor = $newName;
+    }
     $content['site'] = array_merge(is_array($site) ? $site : [], [
-        'name' => security_clean_text($_POST['name'] ?? '', 80),
+        'name' => $newName,
+        'short_name' => $newShort,
         'subtitle' => security_clean_text($_POST['subtitle'] ?? '', 200),
         'hero_bg' => $heroBg,
-        'footer' => security_clean_text($_POST['footer'] ?? '', 300),
+        'footer' => $newFooter,
         'footer_extra' => security_clean_text($_POST['footer_extra'] ?? '', 500),
         'footer_show_apply' => !empty($_POST['footer_show_apply']) ? '1' : '0',
         'footer_show_message' => !empty($_POST['footer_show_message']) ? '1' : '0',
@@ -88,7 +99,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'seo_title' => security_clean_text($_POST['seo_title'] ?? '', 120),
         'seo_keywords' => security_clean_text($_POST['seo_keywords'] ?? '', 500),
         'seo_description' => security_clean_text($_POST['seo_description'] ?? '', 320),
-        'seo_author' => security_clean_text($_POST['seo_author'] ?? '', 80),
+        'seo_author' => $seoAuthor,
         'seo_robots' => $seoRobots,
         'seo_canonical' => $seoCanonical,
         'seo_og_image' => $seoOgImage,
@@ -99,6 +110,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ? security_sanitize_head_html($_POST['seo_head_html'] ?? '')
             : '',
     ]);
+    // 出站 HTTPS 证书校验（影响 Linux.do OAuth、GitHub 更新、热榜抓取、AI 等）
+    $sslVerify = !empty($_POST['ssl_verify_peer']) ? '1' : '0';
+    setting_set('ssl_verify_peer', $sslVerify);
+
     if (save_content($content)) {
         admin_log_write('settings_save', '保存站点设置', [
             'module' => 'settings',
@@ -106,6 +121,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'detail' => [
                 'name' => $content['site']['name'] ?? '',
                 'hero_bg_changed' => ($heroBg !== $prevHero),
+                'ssl_verify_peer' => $sslVerify,
             ],
         ]);
         flash_set('success', '站点设置已保存');
@@ -134,7 +150,13 @@ admin_layout_start('站点设置', 'settings');
         <?php echo csrf_field(); ?>
         <label>
             <span>站点名称</span>
-            <input type="text" name="name" value="<?php echo e($site['name'] ?? ''); ?>" required maxlength="80">
+            <input type="text" name="name" value="<?php echo e($site['name'] ?? ''); ?>" required maxlength="80" placeholder="显示在前台标题、页脚、邮件等位置">
+            <small class="muted">全站品牌名，前台/后台/邮件均读取此项，无需改代码</small>
+        </label>
+        <label>
+            <span>品牌短名（可选）</span>
+            <input type="text" name="short_name" value="<?php echo e($site['short_name'] ?? ''); ?>" maxlength="8" placeholder="后台角标，留空取站点名首字">
+            <small class="muted">用于后台侧栏/登录页角标，建议 1～2 个字</small>
         </label>
         <label>
             <span>副标题 / 简介</span>
@@ -234,7 +256,7 @@ admin_layout_start('站点设置', 'settings');
             <p class="muted" style="margin:0 0 12px;font-size:0.88rem;">用于首页与全站默认的标题、描述、关键词、索引策略与站长验证。子页面会在标题中自动附加页面名。</p>
             <label>
                 <span>SEO 标题（留空则用「站点名 - 副标题」）</span>
-                <input type="text" name="seo_title" value="<?php echo e($site['seo_title'] ?? ''); ?>" maxlength="120" placeholder="例如：夏尼猫网址导航 - 实用工具与热榜聚合">
+                <input type="text" name="seo_title" value="<?php echo e($site['seo_title'] ?? ''); ?>" maxlength="120" placeholder="留空则用「站点名 - 副标题」">
             </label>
             <label>
                 <span>SEO 关键词（英文逗号分隔）</span>
@@ -246,7 +268,7 @@ admin_layout_start('站点设置', 'settings');
             </label>
             <label>
                 <span>作者 / 运营主体</span>
-                <input type="text" name="seo_author" value="<?php echo e($site['seo_author'] ?? ''); ?>" maxlength="80" placeholder="夏尼猫">
+                <input type="text" name="seo_author" value="<?php echo e($site['seo_author'] ?? ''); ?>" maxlength="80" placeholder="留空则跟随站点名称">
             </label>
             <label>
                 <span>Robots 指令</span>
@@ -302,6 +324,26 @@ admin_layout_start('站点设置', 'settings');
             <input type="checkbox" name="enable_message" value="1" <?php echo empty($site['enable_message']) || $site['enable_message'] === '1' ? 'checked' : ''; ?>>
             <span>启用在线留言</span>
         </label>
+        <?php
+        $sslVerifySetting = function_exists('setting_get') ? (string) setting_get('ssl_verify_peer', '1') : '1';
+        $sslVerifyOn = !in_array(strtolower(trim($sslVerifySetting)), ['0', 'false', 'off', 'no'], true);
+        $sslCa = function_exists('security_ssl_cafile') ? security_ssl_cafile() : '';
+        ?>
+        <fieldset class="footer-edit-block" style="border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin:4px 0 8px;grid-column:1/-1;">
+            <legend style="padding:0 8px;font-size:0.95rem;font-weight:700;">出站 HTTPS / SSL</legend>
+            <p class="muted" style="margin:0 0 12px;font-size:0.88rem;">
+                若 Linux.do 登录或后台更新提示「SSL certificate problem: unable to get local issuer certificate」，
+                优先在服务器配置 CA 证书（php.ini 的 <code>curl.cainfo</code> / <code>openssl.cafile</code>，或放置 <code>config/cacert.pem</code>）。
+                临时环境可关闭下方校验开关（生产环境建议保持开启）。
+            </p>
+            <label class="checkbox-label" style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+                <input type="checkbox" name="ssl_verify_peer" value="1" <?php echo $sslVerifyOn ? 'checked' : ''; ?>>
+                <span>校验证书（推荐开启）</span>
+            </label>
+            <p class="muted" style="margin:0;font-size:0.82rem;">
+                当前 CA 证书包：<?php echo $sslCa !== '' ? e($sslCa) : '未检测到（可能导致证书校验失败）'; ?>
+            </p>
+        </fieldset>
         <label>
             <span>关于我们（纯文本或简单 HTML）</span>
             <textarea name="about_html" rows="5"><?php echo e($site['about_html'] ?? ''); ?></textarea>

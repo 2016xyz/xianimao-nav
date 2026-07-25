@@ -11,6 +11,104 @@ function ai_config_file()
 {
     return ROOT_PATH . '/config/ai_config.json';
 }
+/**
+ * 仅允许访问公网 HTTPS 主机（防 SSRF：拒绝回环/私网/链路本地/云元数据）
+ */
+function ai_is_public_url($url)
+{
+    $url = trim((string) $url);
+    if ($url === '' || !preg_match('#^https://#i', $url)) {
+        return false;
+    }
+    if (preg_match('#^\s*(javascript|data|vbscript|file)\s*:#iu', $url)) {
+        return false;
+    }
+    $parts = @parse_url($url);
+    if (!is_array($parts) || empty($parts['host'])) {
+        return false;
+    }
+    if (!empty($parts['user']) || !empty($parts['pass'])) {
+        return false;
+    }
+    $host = strtolower((string) $parts['host']);
+    // 禁止字面量危险主机
+    $blockedHosts = [
+        'localhost', 'metadata', 'metadata.google.internal',
+        'instance-data', 'kubernetes.default', 'kubernetes.default.svc',
+    ];
+    if (in_array($host, $blockedHosts, true)) {
+        return false;
+    }
+    // IP 字面量
+    if (filter_var($host, FILTER_VALIDATE_IP)) {
+        return ai_ip_is_public($host);
+    }
+    // 主机名基本校验
+    if (!preg_match('#^[a-z0-9]([a-z0-9.\-]*[a-z0-9])?$#i', $host)) {
+        return false;
+    }
+    // DNS 解析后校验所有 A/AAAA
+    $ips = [];
+    if (function_exists('dns_get_record')) {
+        $a = @dns_get_record($host, DNS_A);
+        if (is_array($a)) {
+            foreach ($a as $r) {
+                if (!empty($r['ip'])) {
+                    $ips[] = $r['ip'];
+                }
+            }
+        }
+        $aaaa = @dns_get_record($host, DNS_AAAA);
+        if (is_array($aaaa)) {
+            foreach ($aaaa as $r) {
+                if (!empty($r['ipv6'])) {
+                    $ips[] = $r['ipv6'];
+                }
+            }
+        }
+    }
+    if ($ips === [] && function_exists('gethostbynamel')) {
+        $list = @gethostbynamel($host);
+        if (is_array($list)) {
+            $ips = $list;
+        }
+    }
+    if ($ips === []) {
+        // 无法解析则拒绝（避免绕过）
+        return false;
+    }
+    foreach ($ips as $ip) {
+        if (!ai_ip_is_public($ip)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+function ai_ip_is_public($ip)
+{
+    $ip = trim((string) $ip);
+    if ($ip === '' || !filter_var($ip, FILTER_VALIDATE_IP)) {
+        return false;
+    }
+    // 拒绝私网 / 保留 / 链路本地 / 回环
+    if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
+        // 额外拒绝 169.254.0.0/16（部分 PHP 版本 RES 已含）
+        if (strpos($ip, '169.254.') === 0) {
+            return false;
+        }
+        // IPv6 链路本地 / ULA
+        if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {
+            $lower = strtolower($ip);
+            if (strpos($lower, 'fe80:') === 0 || strpos($lower, 'fc') === 0 || strpos($lower, 'fd') === 0) {
+                return false;
+            }
+        }
+        return true;
+    }
+    return false;
+}
+
 
 /**
  * @return array{base_url:string,api_key:string,model:string,enabled:bool,models:array,updated_at:string}
@@ -52,6 +150,11 @@ function ai_config_save(array $input)
     $base = rtrim($base, '/');
     if ($base === '') {
         $base = 'https://api.openai.com/v1';
+    }
+    // 仅 https 公网，防 SSRF
+    if (!ai_is_public_url($base)) {
+        // 保留旧值或回退默认，避免写入内网地址
+        $base = ai_is_public_url($prev['base_url'] ?? '') ? rtrim((string) $prev['base_url'], '/') : 'https://api.openai.com/v1';
     }
     // 允许用户填到根路径，自动补 /v1
     if (!preg_match('#/v1$#i', $base) && stripos($base, 'openai.com') !== false) {
@@ -98,6 +201,9 @@ function ai_is_ready()
  */
 function ai_http($method, $url, $apiKey, $jsonBody = null, $timeout = 45)
 {
+    if (!ai_is_public_url($url)) {
+        return ['ok' => false, 'code' => 0, 'body' => '', 'error' => 'URL 不允许（仅公网 HTTPS）'];
+    }
     $headers = [
         'Accept: application/json',
         'Content-Type: application/json',
@@ -108,19 +214,25 @@ function ai_http($method, $url, $apiKey, $jsonBody = null, $timeout = 45)
         $ch = curl_init($url);
         $opts = [
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_FOLLOWLOCATION => false,
             CURLOPT_TIMEOUT => $timeout,
             CURLOPT_CONNECTTIMEOUT => 12,
-            CURLOPT_SSL_VERIFYPEER => function_exists('security_ssl_verify_peer') ? security_ssl_verify_peer() : true,
-            CURLOPT_SSL_VERIFYHOST => (function_exists('security_ssl_verify_peer') && !security_ssl_verify_peer()) ? 0 : 2,
             CURLOPT_CUSTOMREQUEST => strtoupper($method),
             CURLOPT_HTTPHEADER => $headers,
             CURLOPT_USERAGENT => 'NavSite-AI/1.0',
+            CURLOPT_PROTOCOLS => CURLPROTO_HTTPS,
+            CURLOPT_REDIR_PROTOCOLS => CURLPROTO_HTTPS,
         ];
         if ($jsonBody !== null) {
             $opts[CURLOPT_POSTFIELDS] = is_string($jsonBody) ? $jsonBody : json_encode($jsonBody, JSON_UNESCAPED_UNICODE);
         }
         curl_setopt_array($ch, $opts);
+        if (function_exists('security_curl_set_ssl')) {
+            security_curl_set_ssl($ch);
+        } else {
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, function_exists('security_ssl_verify_peer') ? security_ssl_verify_peer() : true);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, (function_exists('security_ssl_verify_peer') && !security_ssl_verify_peer()) ? 0 : 2);
+        }
         $body = curl_exec($ch);
         $errno = curl_errno($ch);
         $err = curl_error($ch);
@@ -140,10 +252,12 @@ function ai_http($method, $url, $apiKey, $jsonBody = null, $timeout = 45)
             'timeout' => $timeout,
             'ignore_errors' => true,
         ],
-        'ssl' => [
-            'verify_peer' => function_exists('security_ssl_verify_peer') ? security_ssl_verify_peer() : true,
-            'verify_peer_name' => function_exists('security_ssl_verify_peer') ? security_ssl_verify_peer() : true,
-        ],
+        'ssl' => function_exists('security_stream_ssl_opts')
+            ? security_stream_ssl_opts()
+            : [
+                'verify_peer' => function_exists('security_ssl_verify_peer') ? security_ssl_verify_peer() : true,
+                'verify_peer_name' => function_exists('security_ssl_verify_peer') ? security_ssl_verify_peer() : true,
+            ],
     ]);
     $body = @file_get_contents($url, false, $ctx);
     $code = 0;
@@ -172,7 +286,7 @@ function ai_fetch_models()
     $url = $cfg['base_url'] . '/models';
     $res = ai_http('GET', $url, $cfg['api_key'], null, 30);
     if (!$res['ok']) {
-        $hint = $res['body'] !== '' ? mb_substr_ai($res['body'], 0, 200) : ($res['error'] ?? '');
+        $hint = $res['error'] ?? '';
         return ['ok' => false, 'message' => '拉取模型失败 HTTP ' . $res['code'] . ($hint !== '' ? '：' . $hint : '')];
     }
 
@@ -234,7 +348,7 @@ function ai_chat($system, $user, $maxTokens = 300)
     ];
     $res = ai_http('POST', $url, $cfg['api_key'], $payload, 60);
     if (!$res['ok']) {
-        $hint = $res['body'] !== '' ? mb_substr_ai($res['body'], 0, 240) : ($res['error'] ?? '');
+        $hint = $res['error'] ?? '';
         return ['ok' => false, 'message' => '生成失败 HTTP ' . $res['code'] . ($hint !== '' ? '：' . $hint : '')];
     }
     $json = json_decode($res['body'], true);

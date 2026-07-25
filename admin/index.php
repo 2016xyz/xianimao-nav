@@ -24,7 +24,7 @@ admin_layout_start('概览', 'dashboard');
 <div class="dash-hero panel panel-accent">
     <div class="dash-hero-text">
         <p class="dash-kicker">Dashboard</p>
-        <h2 class="dash-title"><?php echo e($content['site']['name'] ?? '夏尼猫网址导航'); ?></h2>
+        <h2 class="dash-title"><?php echo e(site_brand_name($content['site'] ?? null)); ?></h2>
         <p class="dash-sub muted"><?php echo e($content['site']['subtitle'] ?? '管理站点内容、热榜授权与系统配置'); ?></p>
         <div class="btn-row">
             <a class="btn btn-primary" href="settings.php"><span class="btn-ico">✎</span> 编辑站点设置</a>

@@ -30,7 +30,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $links = [];
 
     if (is_array($names)) {
+        $count = 0;
         foreach ($names as $i => $name) {
+            if ($count >= 100) {
+                break;
+            }
             $name = security_clean_text($name, 80);
             $url = security_url(trim((string) ($urls[$i] ?? '')), false);
             $desc = security_clean_text($descs[$i] ?? '', 300);
@@ -47,6 +51,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'url' => $url,
                 'desc' => $desc,
             ];
+            $count++;
         }
     }
 
@@ -77,7 +82,7 @@ $show = !isset($data['site']['show_friend_links']) || $data['site']['show_friend
     <div class="panel-head">
         <div>
             <h2>友情链接</h2>
-            <p class="muted">管理友链列表，并可控制前台是否显示「友情链接」整块区域。</p>
+            <p class="muted">管理友链列表，可用 ↑↓ 调整显示顺序；并可控制前台是否显示「友情链接」整块区域。</p>
         </div>
         <button type="button" class="btn btn-primary" data-add-row data-template="link-row-tpl">＋ 添加友链</button>
     </div>
@@ -96,6 +101,7 @@ $show = !isset($data['site']['show_friend_links']) || $data['site']['show_friend
             <table class="data-table">
                 <thead>
                     <tr>
+                        <th style="width:52px">排序</th>
                         <th style="width:18%">名称</th>
                         <th style="width:28%">链接</th>
                         <th>简介</th>
@@ -105,11 +111,15 @@ $show = !isset($data['site']['show_friend_links']) || $data['site']['show_friend
                 <tbody id="rows">
                     <?php if (empty($items)): ?>
                         <tr class="empty-row">
-                            <td colspan="4" class="muted" style="text-align:center;padding:28px;">暂无友链，点击右上角添加</td>
+                            <td colspan="5" class="muted" style="text-align:center;padding:28px;">暂无友链，点击右上角添加</td>
                         </tr>
                     <?php endif; ?>
                     <?php foreach ($items as $item): ?>
                         <tr>
+                            <td class="row-order">
+                                <button type="button" class="btn btn-secondary btn-sm" data-move-row="up" title="上移">↑</button>
+                                <button type="button" class="btn btn-secondary btn-sm" data-move-row="down" title="下移">↓</button>
+                            </td>
                             <td>
                                 <input type="hidden" name="id[]" value="<?php echo e($item['id'] ?? ''); ?>">
                                 <input type="text" name="name[]" value="<?php echo e($item['name'] ?? ''); ?>" required>
@@ -137,6 +147,10 @@ $show = !isset($data['site']['show_friend_links']) || $data['site']['show_friend
 
 <template id="link-row-tpl">
     <tr>
+        <td class="row-order">
+            <button type="button" class="btn btn-secondary btn-sm" data-move-row="up" title="上移">↑</button>
+            <button type="button" class="btn btn-secondary btn-sm" data-move-row="down" title="下移">↓</button>
+        </td>
         <td>
             <input type="hidden" name="id[]" value="">
             <input type="text" name="name[]" value="" required placeholder="站点名称">
@@ -152,4 +166,8 @@ $show = !isset($data['site']['show_friend_links']) || $data['site']['show_friend
         </td>
     </tr>
 </template>
+<style>
+.row-order { display:flex; flex-direction:column; gap:4px; align-items:center; white-space:nowrap; }
+.row-order .btn { min-width: 34px; padding-left: 8px; padding-right: 8px; }
+</style>
 <?php admin_layout_end(); ?>

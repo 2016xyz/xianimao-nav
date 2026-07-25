@@ -8,6 +8,8 @@ define('HOT_BOARDS_FILE', ROOT_PATH . '/config/hot_boards.php');
 define('AUTH_FILE', ROOT_PATH . '/config/auth.php'); // 兼容旧文件，已改用数据库 admins 表
 
 require_once __DIR__ . '/security.php';
+require_once __DIR__ . '/security_ssl.php';
+require_once __DIR__ . '/security_hardening.php';
 require_once __DIR__ . '/install.php';
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/updater.php';
@@ -23,15 +25,99 @@ security_send_headers();
 require_installed_or_redirect();
 
 /**
- * 默认内容结构
+ * 出厂默认站点名称（仅作未配置时的兜底，运行时请用 site_brand_name()）
+ */
+function site_brand_default_name()
+{
+    return '网址导航';
+}
+
+/**
+ * 全站品牌名：后台「站点设置 → 站点名称」可改，勿在页面写死
+ *
+ * @param array|null $site 可选 site 数组；省略则 load_content
+ */
+function site_brand_name($site = null)
+{
+    static $cached = null;
+    if (is_array($site)) {
+        $n = trim((string) ($site['name'] ?? ''));
+        if ($n !== '') {
+            return $n;
+        }
+        return site_brand_default_name();
+    }
+    if ($cached !== null) {
+        return $cached;
+    }
+    try {
+        if (function_exists('load_content')) {
+            $content = load_content();
+            $n = trim((string) ($content['site']['name'] ?? ''));
+            if ($n !== '') {
+                $cached = $n;
+                return $cached;
+            }
+        }
+    } catch (Throwable $e) {
+        // ignore
+    }
+    $cached = site_brand_default_name();
+    return $cached;
+}
+
+/**
+ * 品牌短名（后台角标/顶栏）：优先 short_name，否则取站点名首字
+ *
+ * @param array|null $site
+ */
+function site_brand_short($site = null)
+{
+    $siteArr = is_array($site) ? $site : null;
+    if ($siteArr === null) {
+        try {
+            if (function_exists('load_content')) {
+                $content = load_content();
+                $siteArr = is_array($content['site'] ?? null) ? $content['site'] : [];
+            }
+        } catch (Throwable $e) {
+            $siteArr = [];
+        }
+    }
+    $short = trim((string) ($siteArr['short_name'] ?? ''));
+    if ($short !== '') {
+        if (function_exists('mb_substr')) {
+            return mb_substr($short, 0, 4, 'UTF-8');
+        }
+        return substr($short, 0, 8);
+    }
+    $name = site_brand_name($siteArr);
+    if (function_exists('mb_substr')) {
+        return mb_substr($name, 0, 1, 'UTF-8');
+    }
+    return substr($name, 0, 1);
+}
+
+/**
+ * 默认页脚版权（跟随站点名称）
+ */
+function site_brand_footer_default($site = null)
+{
+    return '© ' . date('Y') . ' ' . site_brand_name($site);
+}
+
+/**
+ * 默认内容结构（安装 / 空库初始化；具体名称仍可在后台修改）
  */
 function default_content()
 {
+    $brand = site_brand_default_name();
     return [
         'site' => [
-            'name' => '夏尼猫网址导航',
+            'name' => $brand,
+            'short_name' => '',
             'subtitle' => '实用工具与优质站点聚合',
-            'footer' => '© ' . date('Y') . ' 夏尼猫网址导航',
+            'footer' => '© ' . date('Y') . ' ' . $brand,
             'footer_extra' => '',
             'footer_show_apply' => '1',
             'footer_show_message' => '1',
@@ -40,16 +126,16 @@ function default_content()
             'footer_links' => [],
             'show_friend_links' => '1',
             'enable_message' => '1',
-            'about_html' => '<p>夏尼猫网址导航汇集实用工具、开源项目与优质站点，帮助你更快找到需要的资源。</p>',
-            'contact_html' => '<p>如有合作、建议或问题，欢迎通过邮件 <a href="mailto:i@2016xlx.cn">i@2016xlx.cn</a> 或留言联系我们。</p>',
-            'contact_email' => 'i@2016xlx.cn',
+            'about_html' => '<p>' . $brand . '汇集实用工具、开源项目与优质站点，帮助你更快找到需要的资源。</p>',
+            'contact_html' => '<p>如有合作、建议或问题，欢迎通过邮件或留言联系我们。</p>',
+            'contact_email' => '',
             // 首页 Hero 背景图（空 = 默认 assets/images/background.avif）
             'hero_bg' => '',
             // SEO
             'seo_title' => '',
-            'seo_keywords' => '网址导航,实用工具,开源项目,热榜,搜索聚合,夏尼猫',
-            'seo_description' => '夏尼猫网址导航：搜索聚合、今日热榜、实用工具与优质站点一站直达。',
-            'seo_author' => '夏尼猫',
+            'seo_keywords' => '网址导航,实用工具,开源项目,热榜,搜索聚合',
+            'seo_description' => $brand . '：搜索聚合、今日热榜、实用工具与优质站点一站直达。',
+            'seo_author' => '',
             'seo_robots' => 'index,follow',
             'seo_canonical' => '',
             'seo_og_image' => '',
@@ -89,7 +175,9 @@ function load_content_from_json()
             $data[$key] = $json[$key];
         }
     }
-    return $data;
+    return function_exists('security_sanitize_site_content')
+        ? security_sanitize_site_content($data)
+        : $data;
 }
 
 /**
@@ -331,7 +419,9 @@ function load_content()
         }
     }
 
-    return $data;
+    return function_exists('security_sanitize_site_content')
+        ? security_sanitize_site_content($data)
+        : $data;
 }
 
 /**
@@ -340,6 +430,38 @@ function load_content()
 function safe_http_url($url, $allowRelative = true)
 {
     return security_url($url, $allowRelative);
+}
+
+/**
+ * 输出安全 href（失败返回 #）
+ */
+function e_href($url, $allowRelative = true, $fallback = '#')
+{
+    if (function_exists('security_href')) {
+        return e(security_href($url, $allowRelative, $fallback));
+    }
+    $safe = security_url($url, $allowRelative);
+    return e($safe !== '' ? $safe : $fallback);
+}
+
+/**
+ * 搜索引擎 data-url 安全输出
+ */
+function e_search_url($url)
+{
+    $safe = function_exists('security_search_url') ? security_search_url($url) : security_url($url, false);
+    return e($safe !== '' ? $safe : '#');
+}
+
+function asset_url($path)
+{
+    $path = ltrim(security_clean_text($path, 180), '/');
+    if ($path === '' || !preg_match('~^[A-Za-z0-9_./-]+\.(?:css|js|png|jpg|jpeg|gif|webp|svg|ico)$~', $path)) {
+        return '';
+    }
+    $full = ROOT_PATH . '/' . $path;
+    $v = is_file($full) ? (string) @filemtime($full) : (string) APP_VERSION;
+    return $path . '?v=' . rawurlencode($v);
 }
 
 /**
@@ -554,18 +676,38 @@ function save_content(array $data)
  */
 function save_message(array $row)
 {
-    $type = $row['type'] ?? 'message';
-    $payload = [
-        'type' => in_array($type, ['message', 'apply'], true) ? $type : 'message',
-        'name' => trim((string) ($row['name'] ?? '')),
-        'contact' => trim((string) ($row['contact'] ?? '')),
-        'email' => trim((string) ($row['email'] ?? '')),
-        'website' => trim((string) ($row['website'] ?? '')),
-        'content' => trim((string) ($row['content'] ?? '')),
-        'status' => 'pending',
-        'ip' => (string) ($row['ip'] ?? ''),
-        'created_at' => date('Y-m-d H:i:s'),
-    ];
+    // 统一强制校验，防止旁路入库（XSS/脏数据/非法 URL）
+    if (function_exists('security_validate_message_row')) {
+        $v = security_validate_message_row($row);
+        if (empty($v['ok']) || empty($v['data']) || !is_array($v['data'])) {
+            return false;
+        }
+        $d = $v['data'];
+        $payload = [
+            'type' => $d['type'],
+            'name' => $d['name'],
+            'contact' => $d['contact'],
+            'email' => $d['email'],
+            'website' => $d['website'],
+            'content' => $d['content'],
+            'status' => 'pending',
+            'ip' => $d['ip'] !== '' ? $d['ip'] : security_ip(),
+            'created_at' => date('Y-m-d H:i:s'),
+        ];
+    } else {
+        $type = $row['type'] ?? 'message';
+        $payload = [
+            'type' => in_array($type, ['message', 'apply'], true) ? $type : 'message',
+            'name' => trim((string) ($row['name'] ?? '')),
+            'contact' => trim((string) ($row['contact'] ?? '')),
+            'email' => trim((string) ($row['email'] ?? '')),
+            'website' => trim((string) ($row['website'] ?? '')),
+            'content' => trim((string) ($row['content'] ?? '')),
+            'status' => 'pending',
+            'ip' => (string) ($row['ip'] ?? ''),
+            'created_at' => date('Y-m-d H:i:s'),
+        ];
+    }
 
     try {
         $pdo = db();
@@ -1467,7 +1609,7 @@ function site_request_absolute_url()
  */
 function site_seo_meta(array $site, array $overrides = [])
 {
-    $name = trim((string) ($site['name'] ?? '夏尼猫网址导航'));
+    $name = site_brand_name($site);
     $subtitle = trim((string) ($site['subtitle'] ?? ''));
     $seoTitle = trim((string) ($site['seo_title'] ?? ''));
     $seoDesc = trim((string) ($site['seo_description'] ?? ''));
@@ -1651,16 +1793,23 @@ function csrf_field()
 
 function verify_csrf()
 {
+    // Origin/Referer 同源校验（有头则必须通过）
+    if (function_exists('security_request_same_origin') && !security_request_same_origin()) {
+        return false;
+    }
     $token = $_POST['csrf_token'] ?? ($_POST['_csrf'] ?? '');
     $session = $_SESSION['csrf_token'] ?? '';
     return $token !== '' && $session !== '' && hash_equals($session, $token);
 }
 
-/** 兼容别名 */
+/** 兼容别名：与 verify_csrf 同级，始终做同源校验 */
 function csrf_verify($token = null)
 {
+    if (function_exists('security_request_same_origin') && !security_request_same_origin()) {
+        return false;
+    }
     if ($token === null) {
-        return verify_csrf();
+        $token = $_POST['csrf_token'] ?? ($_POST['_csrf'] ?? '');
     }
     $session = $_SESSION['csrf_token'] ?? '';
     return $token !== '' && $session !== '' && hash_equals($session, (string) $token);
@@ -1697,9 +1846,13 @@ function flash_get()
 function redirect($url)
 {
     $url = (string) $url;
-    // 仅允许相对路径或站内 .php，防止开放重定向
-    if (preg_match('#^(https?:)?//#i', $url) || strpos($url, "\n") !== false || strpos($url, "\r") !== false) {
-        $url = 'index.php';
+    if (function_exists('security_safe_redirect_target')) {
+        $url = security_safe_redirect_target($url, 'index.php');
+    } else {
+        // 仅允许相对路径或站内 .php，防止开放重定向
+        if (preg_match('#^(https?:)?//#i', $url) || strpos($url, "\n") !== false || strpos($url, "\r") !== false) {
+            $url = 'index.php';
+        }
     }
     header('Location: ' . $url);
     exit;

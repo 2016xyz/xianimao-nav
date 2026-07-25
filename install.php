@@ -4,6 +4,8 @@
  */
 define('ROOT_PATH', __DIR__);
 require_once __DIR__ . '/includes/security.php';
+require_once __DIR__ . '/includes/security_ssl.php';
+require_once __DIR__ . '/includes/security_hardening.php';
 require_once __DIR__ . '/includes/install.php';
 
 security_configure_session();
@@ -107,9 +109,9 @@ $old = [
     // 失败重试不回显数据库密码，避免出现在 HTML 源码
     'db_pass' => '',
     'create_database' => isset($_POST['create_database']) ? 1 : (empty($_POST) ? 1 : 0),
-    'site_name' => $_POST['site_name'] ?? '夏尼猫网址导航',
+    'site_name' => $_POST['site_name'] ?? '网址导航',
     'site_subtitle' => $_POST['site_subtitle'] ?? '实用工具与优质站点聚合',
-    'site_footer' => $_POST['site_footer'] ?? ('© ' . date('Y') . ' 夏尼猫网址导航'),
+    'site_footer' => $_POST['site_footer'] ?? ('© ' . date('Y') . ' 网址导航'),
     'admin_user' => $_POST['admin_user'] ?? 'admin',
 ];
 ?>
@@ -118,7 +120,7 @@ $old = [
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>系统安装 - 夏尼猫网址导航</title>
+    <title>系统安装 - 网址导航</title>
     <style>
         :root {
             --bg: #f0f2f7;
@@ -229,7 +231,7 @@ $old = [
 <body>
 <div class="wrap">
     <div class="brand">
-        <h1>夏尼猫网址导航</h1>
+        <h1>网址导航</h1>
         <p>系统安装向导 · 需 MySQL 数据库</p>
     </div>
 

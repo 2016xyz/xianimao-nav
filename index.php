@@ -1,6 +1,6 @@
 <?php
 /**
- * 夏尼猫网址导航 - 首页
+ * 首页
  */
 require_once __DIR__ . '/includes/bootstrap.php';
 $data = load_site_data();
@@ -69,7 +69,7 @@ require __DIR__ . '/includes/header.php';
         <i class="bi bi-sun-fill" id="themeIcon"></i>
     </button>
     <div class="container position-relative" style="z-index:2;">
-        <h1 class="hero-title"><?php echo e($site['name'] ?? '夏尼猫网址导航'); ?></h1>
+        <h1 class="hero-title"><?php echo e(site_brand_name($site ?? null)); ?></h1>
         <p class="hero-subtitle"><?php echo e($site['subtitle'] ?? '实用工具与优质站点聚合'); ?></p>
 
         <div class="search-box mx-auto">
@@ -78,7 +78,7 @@ require __DIR__ . '/includes/header.php';
                     <button
                         type="button"
                         class="search-tab<?php echo $i === 0 ? ' active' : ''; ?>"
-                        data-url="<?php echo e($tab['url']); ?>"
+                        data-url="<?php echo function_exists('e_search_url') ? e_search_url($tab['url'] ?? '') : e_href($tab['url'] ?? '', false); ?>"
                         data-placeholder="<?php echo e($tab['placeholder']); ?>"
                     >
                         <?php if (!empty($tab['icon'])): ?>
@@ -149,7 +149,7 @@ require __DIR__ . '/includes/header.php';
                                 <div class="hot-empty">
                                     暂时无法获取
                                     <?php if (!empty($board['fallback_url'])): ?>
-                                        · <a href="<?php echo e($board['fallback_url']); ?>" target="_blank" rel="noopener noreferrer">官网</a>
+                                        · <a href="<?php echo e_href($board['fallback_url'] ?? '', false); ?>" target="_blank" rel="noopener noreferrer">官网</a>
                                     <?php endif; ?>
                                 </div>
                             <?php else: ?>
@@ -158,7 +158,7 @@ require __DIR__ . '/includes/header.php';
                                     $rank = (int) ($item['rank'] ?? 0);
                                     $rankClass = $rank >= 1 && $rank <= 3 ? ' hot-rank top' . $rank : ' hot-rank';
                                     ?>
-                                    <div class="hot-item" data-url="<?php echo e($item['url'] ?? '#'); ?>">
+                                    <div class="hot-item" data-url="<?php echo e_href($item['url'] ?? '', false); ?>">
                                         <span class="<?php echo trim($rankClass); ?>"><?php echo $rank; ?></span>
                                         <span class="hot-text"><?php echo e($item['title'] ?? ''); ?></span>
                                         <span class="hot-heat"><?php echo e($item['heat'] ?? ''); ?></span>
@@ -186,7 +186,7 @@ require __DIR__ . '/includes/header.php';
             <div class="sites-grid">
                 <?php foreach ($sites as $siteItem): ?>
                     <a
-                        href="<?php echo e($siteItem['url'] ?? '#'); ?>"
+                        href="<?php echo e_href($siteItem['url'] ?? '', false); ?>"
                         target="_blank"
                         rel="noopener noreferrer"
                         class="site-card site-card-feature"
@@ -233,7 +233,7 @@ require __DIR__ . '/includes/header.php';
             <div class="projects-grid">
                 <?php foreach ($projects as $project): ?>
                     <a
-                        href="<?php echo e($project['url'] ?? '#'); ?>"
+                        href="<?php echo e_href($project['url'] ?? '', false); ?>"
                         target="_blank"
                         rel="noopener noreferrer"
                         class="site-card site-card-project"
@@ -276,7 +276,7 @@ require __DIR__ . '/includes/header.php';
             <div class="tools-grid">
                 <?php foreach ($tools as $tool): ?>
                     <a
-                        href="<?php echo e($tool['url'] ?? '#'); ?>"
+                        href="<?php echo e_href($tool['url'] ?? '', false); ?>"
                         target="_blank"
                         rel="noopener noreferrer"
                         class="site-card site-card-sm"
@@ -289,7 +289,7 @@ require __DIR__ . '/includes/header.php';
                             src="<?php echo e(site_favicon_url($tool['url'] ?? '')); ?>"
                             alt=""
                             loading="lazy"
-                            onerror="this.style.visibility='hidden'"
+                            data-img-fallback="hide"
                         >
                         <span class="site-name"><?php echo e($tool['name'] ?? ''); ?></span>
                     </a>
@@ -308,7 +308,7 @@ require __DIR__ . '/includes/header.php';
             <div class="links-grid">
                 <?php foreach ($links as $link): ?>
                     <a
-                        href="<?php echo e($link['url'] ?? '#'); ?>"
+                        href="<?php echo e_href($link['url'] ?? '', false); ?>"
                         target="_blank"
                         rel="noopener noreferrer"
                         class="site-card site-card-sm"

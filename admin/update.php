@@ -13,6 +13,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = security_enum((string) ($_POST['action'] ?? ''), [
         'check',
         'apply',
+        'import',
         'set_channel',
         'cleanup',
     ]);
@@ -103,16 +104,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         redirect('update.php');
     }
 
+    if ($action === 'import') {
+        $confirm = (string) ($_POST['confirm_text'] ?? '');
+        if ($confirm !== 'UPDATE') {
+            flash_set('error', '请在确认框输入 UPDATE 后再导入更新包');
+            redirect('update.php');
+        }
+        $file = is_array($_FILES['package'] ?? null) ? $_FILES['package'] : [];
+        $result = updater_apply_from_upload($file);
+        admin_log_write(
+            !empty($result['ok']) ? 'update_import' : 'update_import_fail',
+            $result['message'] ?? '导入本地更新包',
+            [
+                'module' => 'update',
+                'level' => !empty($result['ok']) ? 'warning' : 'error',
+                'detail' => [
+                    'ok' => !empty($result['ok']),
+                    'copied' => $result['detail']['copied'] ?? 0,
+                    'version' => $result['detail']['version'] ?? null,
+                    'source' => 'upload',
+                    'original_name' => is_array($file) ? ($file['name'] ?? '') : '',
+                ],
+            ]
+        );
+        flash_set(!empty($result['ok']) ? 'success' : 'error', $result['message'] ?? '导入结束');
+        redirect('update.php');
+    }
+
     flash_set('error', '无效操作');
     redirect('update.php');
 }
 
 $env = updater_env_check();
+$localEnv = function_exists('updater_local_env_check') ? updater_local_env_check() : $env;
 $remote = updater_fetch_remote(false);
 $local = updater_local_version(); // 可能被其它请求改写，再读一次
 
 $channelLabel = ($local['channel'] ?? 'master') === 'release' ? 'GitHub Release' : 'master 分支';
 $hasUpdate = !empty($remote['ok']) && !empty($remote['update_available']);
+$canImport = !empty($localEnv['ok']);
 
 admin_layout_start('系统更新', 'update');
 ?>
@@ -120,7 +150,7 @@ admin_layout_start('系统更新', 'update');
     <div class="panel-head">
         <div>
             <h2>系统更新</h2>
-            <p class="muted">从 GitHub 官方仓库检测并应用程序更新。数据库配置、上传文件与运行时数据不会被覆盖。</p>
+            <p class="muted">支持从 GitHub 在线更新，或导入本地 zip 更新包。数据库配置、上传文件与运行时数据不会被覆盖。</p>
         </div>
         <div class="toolbar" style="gap:8px;flex-wrap:wrap;">
             <span class="tag">v<?php echo e($local['version'] ?? '0.0.0'); ?></span>
@@ -254,13 +284,13 @@ admin_layout_start('系统更新', 'update');
         </div>
     </div>
 
-    <div class="panel" style="padding:16px;border:1px dashed #f59e0b;border-radius:12px;background:#fffbeb;">
+    <div class="panel" style="padding:16px;border:1px dashed #f59e0b;border-radius:12px;background:#fffbeb;margin-bottom:18px;">
         <h3 style="margin:0 0 8px;font-size:15px;color:#92400e;">在线更新</h3>
         <ul class="muted" style="margin:0 0 14px;padding-left:18px;font-size:13px;line-height:1.6;">
             <li>将覆盖程序代码（admin / includes / assets 等），请确认站点目录可写。</li>
             <li><strong>不会覆盖</strong>：数据库配置、install.lock、站点内容、留言、上传图片、缓存与密钥凭证文件。</li>
             <li>更新后会自动执行表结构补齐（ensure_extra_tables）。建议更新前自行备份数据库与站点。</li>
-            <li>服务器需能访问 GitHub（api.github.com / github.com）。</li>
+            <li>服务器需能访问 GitHub（api.github.com / github.com）。若 SSL 失败，请先配置 CA 证书或改用下方「导入更新」。</li>
         </ul>
         <form method="post" data-confirm="确定从 GitHub 下载并覆盖程序文件？请确认已备份。">
             <?php echo csrf_field(); ?>
@@ -272,6 +302,36 @@ admin_layout_start('系统更新', 'update');
             <button type="submit" class="btn btn-danger-soft" <?php echo ($hasUpdate && !empty($env['ok'])) ? '' : 'disabled'; ?>>
                 <?php echo $hasUpdate ? '下载并应用更新' : '暂无可用更新'; ?>
             </button>
+        </form>
+    </div>
+
+    <div class="panel" style="padding:16px;border:1px dashed #0ea5e9;border-radius:12px;background:#f0f9ff;">
+        <h3 style="margin:0 0 8px;font-size:15px;color:#0369a1;">导入更新包（离线）</h3>
+        <ul class="muted" style="margin:0 0 14px;padding-left:18px;font-size:13px;line-height:1.6;">
+            <li>适用于服务器无法访问 GitHub、或 SSL 证书校验失败时：从本机上传官方/自建的 <code>.zip</code> 程序包。</li>
+            <li>支持 GitHub 下载的 Source code (zip)、仓库归档，或含 <code>includes/bootstrap.php</code> 的项目根目录压缩包。</li>
+            <li>与在线更新相同的安全策略：保护数据库配置、密钥、上传与运行时数据；禁止路径穿越。</li>
+            <li>文件限制：仅 <code>.zip</code>，最大约 80MB（还受 PHP <code>upload_max_filesize</code> / <code>post_max_size</code> 限制）。</li>
+        </ul>
+        <form method="post" enctype="multipart/form-data" data-confirm="确定导入本地 zip 并覆盖程序文件？请确认已备份，且更新包来源可信。">
+            <?php echo csrf_field(); ?>
+            <input type="hidden" name="action" value="import">
+            <div class="form-group" style="max-width:420px;margin-bottom:12px;">
+                <label for="package">选择更新包（.zip）</label>
+                <input type="file" id="package" name="package" accept=".zip,application/zip" <?php echo $canImport ? '' : 'disabled'; ?>>
+            </div>
+            <div class="form-group" style="max-width:320px;margin-bottom:12px;">
+                <label for="confirm_text_import">确认操作（请输入 UPDATE）</label>
+                <input type="text" id="confirm_text_import" name="confirm_text" maxlength="20" placeholder="UPDATE" autocomplete="off" <?php echo $canImport ? '' : 'disabled'; ?>>
+            </div>
+            <button type="submit" class="btn btn-primary" <?php echo $canImport ? '' : 'disabled'; ?>>
+                上传并应用更新包
+            </button>
+            <?php if (!$canImport): ?>
+                <p class="muted" style="margin:10px 0 0;font-size:12px;color:#b45309;">
+                    当前环境不满足导入条件：<?php echo e($localEnv['message'] ?? '请检查 Zip 扩展与目录写权限'); ?>
+                </p>
+            <?php endif; ?>
         </form>
     </div>
 </div>

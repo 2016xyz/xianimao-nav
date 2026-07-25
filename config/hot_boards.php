@@ -55,6 +55,17 @@ return [
         ],
     ],
     [
+        'id' => 'github',
+        'name' => 'GitHub 今日热门',
+        'items' => [
+            ['rank' => 1, 'title' => 'torvalds/linux', 'heat' => '—', 'url' => 'https://github.com/trending'],
+            ['rank' => 2, 'title' => 'microsoft/vscode', 'heat' => '—', 'url' => 'https://github.com/trending'],
+            ['rank' => 3, 'title' => 'facebook/react', 'heat' => '—', 'url' => 'https://github.com/trending'],
+            ['rank' => 4, 'title' => 'vercel/next.js', 'heat' => '—', 'url' => 'https://github.com/trending'],
+            ['rank' => 5, 'title' => 'golang/go', 'heat' => '—', 'url' => 'https://github.com/trending'],
+        ],
+    ],
+    [
         'id' => 'bilibili',
         'name' => '哔哩哔哩全站日榜',
         'items' => [

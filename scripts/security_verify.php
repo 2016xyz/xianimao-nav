@@ -27,6 +27,7 @@ assert_true(function_exists('security_email'), 'security_email');
 assert_true(function_exists('security_sanitize_html'), 'security_sanitize_html');
 assert_true(function_exists('security_validate_message_row'), 'security_validate_message_row');
 assert_true(function_exists('security_db_query'), 'security_db_query');
+assert_true(function_exists('security_outbound_url_allowed'), 'security_outbound_url_allowed');
 
 // XSS 输出转义
 assert_true(e('<script>x</script>') === '&lt;script&gt;x&lt;/script&gt;', 'e() escapes tags');
@@ -36,6 +37,21 @@ assert_true(security_url('https://ok.com/a') === 'https://ok.com/a', 'https ok')
 assert_true(security_url('javascript:alert(1)') === '', 'js blocked');
 assert_true(security_url('data:text/html,x') === '', 'data blocked');
 assert_true(security_url('//evil.com') === '', 'protocol-relative blocked');
+assert_true(function_exists('security_href') && security_href('javascript:alert(1)') === '#', 'href fallback');
+assert_true(function_exists('security_search_url') && security_search_url('https://www.baidu.com/s?wd={q}') !== '', 'search url placeholder');
+assert_true(function_exists('security_search_url') && security_search_url('javascript:x') === '', 'search url blocks js');
+assert_true(function_exists('security_safe_redirect_target') && security_safe_redirect_target('//evil.com') === 'index.php', 'redirect blocks //');
+assert_true(function_exists('security_safe_redirect_target') && security_safe_redirect_target('admin/index.php') === 'admin/index.php', 'redirect allows relative');
+assert_true(security_url('/assets/../config/database.php') === '', 'relative traversal blocked');
+assert_true(!security_outbound_url_allowed('http://127.0.0.1/admin', ['http', 'https']), 'outbound private ip blocked');
+assert_true(function_exists('security_sanitize_site_content'), 'sanitize site content exists');
+$dirty = security_sanitize_site_content([
+    'sites' => [
+        ['name' => 'bad', 'url' => 'javascript:alert(1)'],
+        ['name' => 'ok', 'url' => 'https://example.com'],
+    ],
+]);
+assert_true(count($dirty['sites']) === 1 && $dirty['sites'][0]['url'] === 'https://example.com', 'sanitize drops js site url');
 
 // HTML 消毒
 $xss = security_sanitize_html('<p onclick=alert(1)>hi</p><script>x</script><a href="javascript:alert(1)">a</a>');
@@ -43,12 +59,16 @@ assert_true(
     strpos($xss, '<script') === false && stripos($xss, 'onclick') === false && stripos($xss, 'javascript:') === false,
     'sanitize html'
 );
+$head = security_sanitize_head_html('<meta name="x" content="ok"><script>alert(1)</script><link rel="canonical" href="javascript:alert(1)"><iframe src="https://example.com"></iframe>');
+assert_true(stripos($head, '<script') === false && stripos($head, '<iframe') === false && stripos($head, 'javascript:') === false, 'sanitize head html');
+assert_true(asset_url('assets/js/main.js') !== '' && strpos(asset_url('assets/js/main.js'), '?v=') !== false, 'asset url versioned');
 
 // 邮箱 / 数字码
 assert_true(security_email('a@b.com') === 'a@b.com', 'email ok');
 assert_true(security_email('not-mail') === null, 'email bad');
 assert_true(security_digits('123456', 6) === '123456', 'digits ok');
 assert_true(security_digits('12ab56', 6) === null, 'digits bad');
+assert_true(strpos(file_get_contents($root . '/includes/install.php'), "root' && \$db['password'] === ''") !== false, 'install rejects root empty password');
 
 // 留言校验
 $v = security_validate_message_row([

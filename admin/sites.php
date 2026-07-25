@@ -62,7 +62,7 @@ admin_layout_start('自营站点', 'sites');
     <div class="panel-head">
         <div>
             <h2>自营站点</h2>
-            <p class="muted">管理首页「自营站点」列表。填写名称与链接后，可点击「AI 生成介绍」自动写简介（需先在 AI 配置中启用）。</p>
+            <p class="muted">管理首页「自营站点」列表。可用 ↑↓ 调整显示顺序，保存后生效。填写名称与链接后，可点击「AI 生成介绍」自动写简介（需先在 AI 配置中启用）。</p>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
             <?php if ($aiReady): ?>
@@ -79,16 +79,21 @@ admin_layout_start('自营站点', 'sites');
             <table class="data-table" id="editable-table">
                 <thead>
                     <tr>
+                        <th style="width:52px">排序</th>
                         <th>名称</th>
                         <th>介绍</th>
                         <th>链接</th>
                         <th>标签</th>
-                        <th style="width:160px">操作</th>
+                        <th style="width:200px">操作</th>
                     </tr>
                 </thead>
                 <tbody id="rows">
                     <?php foreach ($items as $row): ?>
                         <tr>
+                            <td class="row-order">
+                                <button type="button" class="btn btn-secondary btn-sm" data-move-row="up" title="上移">↑</button>
+                                <button type="button" class="btn btn-secondary btn-sm" data-move-row="down" title="下移">↓</button>
+                            </td>
                             <td><input type="text" name="name[]" value="<?php echo e($row['name'] ?? ''); ?>" placeholder="站点名称"></td>
                             <td>
                                 <div class="desc-cell">
@@ -108,6 +113,10 @@ admin_layout_start('自营站点', 'sites');
         </div>
         <template id="row-template">
             <tr>
+                <td class="row-order">
+                    <button type="button" class="btn btn-secondary btn-sm" data-move-row="up" title="上移">↑</button>
+                    <button type="button" class="btn btn-secondary btn-sm" data-move-row="down" title="下移">↓</button>
+                </td>
                 <td><input type="text" name="name[]" value="" placeholder="站点名称"></td>
                 <td>
                     <div class="desc-cell">
@@ -132,6 +141,8 @@ admin_layout_start('自营站点', 'sites');
 </div>
 <style>
 .row-actions { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+.row-order { display:flex; flex-direction:column; gap:4px; align-items:center; white-space:nowrap; }
+.row-order .btn { min-width: 34px; padding-left: 8px; padding-right: 8px; }
 .desc-cell { min-width: 180px; }
 #editable-table input { width: 100%; min-width: 90px; }
 .btn-ai-desc.is-loading { opacity: 0.7; pointer-events: none; }

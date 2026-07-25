@@ -9,7 +9,7 @@ if (!defined('ROOT_PATH')) {
 
 function admin_layout_start($title, $page = '')
 {
-    $siteName = '管理后台';
+    $siteName = function_exists('site_brand_name') ? site_brand_name() : '网址导航';
     $flash = flash_get();
     $adminMenus = [
         ['page' => 'dashboard', 'href' => 'index.php', 'label' => '概览', 'short' => '概', 'icon' => 'home'],
@@ -42,7 +42,7 @@ function admin_layout_start($title, $page = '')
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?php echo e($title); ?> - <?php echo e($siteName); ?></title>
+    <title><?php echo e($title); ?> - <?php echo e($siteName); ?> · 管理后台</title>
     <?php
     $v = @filemtime(__DIR__ . '/assets/admin.css') ?: time();
     $vv = @filemtime(__DIR__ . '/assets/admin-vue.js') ?: time();
@@ -73,7 +73,7 @@ function admin_layout_start($title, $page = '')
                 <span class="admin-nav-toggle-label" id="adminNavToggleLabel">菜单</span>
             </button>
             <div class="admin-topbar-title">
-                <p class="admin-topbar-kicker">夏尼猫 · 管理后台</p>
+                <p class="admin-topbar-kicker"><?php echo e($siteName); ?> · 管理后台</p>
                 <h1><?php echo e($title); ?></h1>
             </div>
             <div class="admin-topbar-actions">
@@ -90,9 +90,9 @@ function admin_layout_start($title, $page = '')
         <div class="admin-body-row">
             <aside class="admin-sidebar" id="adminSidebar">
                 <div class="admin-brand">
-                    <span class="brand-mark">夏</span>
+                    <span class="brand-mark"><?php echo e(site_brand_short()); ?></span>
                     <div class="admin-brand-text">
-                        <strong>导航管理</strong>
+                        <strong><?php echo e(site_brand_name()); ?> · 管理后台</strong>
                         <small>Content Admin</small>
                     </div>
                 </div>
@@ -144,6 +144,12 @@ function admin_layout_end(array $extraScripts = [])
     <script src="assets/vendor/vue.global.prod.js?v=<?php echo (int) $vj; ?>"></script>
     <script src="assets/admin-vue.js?v=<?php echo (int) $vv; ?>"></script>
     <?php foreach ($extraScripts as $src): ?>
+        <?php
+        $src = (string) $src;
+        if (!preg_match('~^assets/[a-z0-9._/-]+\.js(?:\?v=[a-z0-9._-]+)?$~i', $src)) {
+            continue;
+        }
+        ?>
         <script src="<?php echo e($src); ?>"></script>
     <?php endforeach; ?>
     <script src="assets/admin.js?v=<?php echo (int) $vAdminJs; ?>"></script>

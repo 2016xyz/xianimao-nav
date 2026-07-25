@@ -13,7 +13,7 @@ function page_layout_start($pageTitle, array $opts = [])
     }
     $data = $GLOBALS['data'];
     $site = $data['site'] ?? [];
-    $siteName = $site['name'] ?? '夏尼猫网址导航';
+    $siteName = function_exists('site_brand_name') ? site_brand_name($site) : ($site['name'] ?? '网址导航');
     $vis = footer_builtin_visibility($site);
 
     $icon = $opts['icon'] ?? 'bi-file-earmark-text';
@@ -42,10 +42,10 @@ function page_layout_start($pageTitle, array $opts = [])
         'description' => $seoDesc,
     ]);
     ?>
-    <link href="assets/css/bootstrap.min.css" rel="stylesheet">
-    <link href="assets/css/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="assets/css/style.css">
-    <script src="assets/js/theme-init.js"></script>
+    <link href="<?php echo e(asset_url('assets/css/bootstrap.min.css')); ?>" rel="stylesheet">
+    <link href="<?php echo e(asset_url('assets/css/bootstrap-icons.min.css')); ?>" rel="stylesheet">
+    <link rel="stylesheet" href="<?php echo e(asset_url('assets/css/style.css')); ?>">
+    <script src="<?php echo e(asset_url('assets/js/theme-init.js')); ?>"></script>
 </head>
 <body class="subpage subpage-tone-<?php echo e($tone); ?>">
 <header class="subpage-header">
@@ -109,7 +109,7 @@ function page_layout_end()
         </div>
     </div>
 </main>
-<script src="assets/js/subpage.js"></script>
+<script src="<?php echo e(asset_url('assets/js/subpage.js')); ?>"></script>
 <?php
     require __DIR__ . '/footer.php';
 }

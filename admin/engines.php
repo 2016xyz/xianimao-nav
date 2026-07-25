@@ -20,7 +20,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($action === 'save') {
         $name = security_clean_text($_POST['name'] ?? '', 80);
-        $url = security_url(trim((string) ($_POST['url'] ?? '')), false);
+        $urlRaw = trim((string) ($_POST['url'] ?? ''));
+        $url = function_exists('security_search_url') ? security_search_url($urlRaw) : security_url($urlRaw, false);
+        if ($url === '') {
+            $url = security_url($urlRaw, false);
+        }
         $id = security_id($_POST['id'] ?? '', 64);
         if ($name === '' || $url === '') {
             flash_set('error', '名称与搜索 URL 不能为空，且 URL 须为 http(s)');
@@ -34,6 +38,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $list[$index] = $item;
             flash_set('success', '搜索引擎已更新');
         } else {
+            if (count($list) >= 30) {
+                flash_set('error', '搜索引擎最多 30 个');
+                redirect('engines.php');
+            }
             $list[] = $item;
             flash_set('success', '搜索引擎已添加');
         }

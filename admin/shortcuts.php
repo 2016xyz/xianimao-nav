@@ -17,8 +17,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($action === 'save') {
         $name = security_clean_text($_POST['name'] ?? '', 80);
-        $url = security_url(trim((string) ($_POST['url'] ?? '')), false);
+        $urlRaw = trim((string) ($_POST['url'] ?? ''));
         $type = security_enum((string) ($_POST['type'] ?? 'search'), ['link', 'search']) ?? 'search';
+        if ($type === 'search' && function_exists('security_search_url')) {
+            $url = security_search_url($urlRaw);
+            if ($url === '') {
+                $url = security_url($urlRaw, false);
+            }
+        } else {
+            $url = security_url($urlRaw, false);
+        }
         if ($name === '' || $url === '') {
             flash_set('error', '名称与链接不能为空，且 URL 须为 http(s)');
             redirect('shortcuts.php');
@@ -28,6 +36,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $list[$index] = $item;
             flash_set('success', '快捷入口已更新');
         } else {
+            if (count($list) >= 40) {
+                flash_set('error', '快捷入口最多 40 个');
+                redirect('shortcuts.php');
+            }
             $list[] = $item;
             flash_set('success', '快捷入口已添加');
         }

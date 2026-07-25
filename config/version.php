@@ -4,7 +4,7 @@
  * 发布新版本时请同步递增 version / build，并尽量填写 commit。
  */
 return [
-    'name' => '夏尼猫网址导航',
+    'name' => '网址导航',
     'version' => '1.2.2',
     'build' => '20260724',
     // 最近发布对应的 git commit（短/长 SHA 均可）；空则仅按 version 比较

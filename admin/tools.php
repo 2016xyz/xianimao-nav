@@ -63,7 +63,7 @@ $items = $data['tools'] ?? [];
     <div class="panel-head">
         <div>
             <h2>实用工具</h2>
-            <p class="muted">首页「实用工具」区块，支持添加、修改、删除后保存。</p>
+            <p class="muted">首页「实用工具」区块，支持添加、修改、删除，可用 ↑↓ 调整显示顺序后保存。</p>
         </div>
         <button type="button" class="btn btn-primary" data-add-row data-template="tool-row-tpl">＋ 添加工具</button>
     </div>
@@ -74,6 +74,7 @@ $items = $data['tools'] ?? [];
             <table class="data-table">
                 <thead>
                     <tr>
+                        <th style="width:52px">排序</th>
                         <th style="width:18%">名称</th>
                         <th style="width:28%">链接</th>
                         <th>简介</th>
@@ -83,11 +84,15 @@ $items = $data['tools'] ?? [];
                 <tbody id="rows">
                     <?php if (empty($items)): ?>
                         <tr class="empty-row">
-                            <td colspan="4" class="muted" style="text-align:center;padding:28px;">暂无工具，点击右上角添加</td>
+                            <td colspan="5" class="muted" style="text-align:center;padding:28px;">暂无工具，点击右上角添加</td>
                         </tr>
                     <?php endif; ?>
                     <?php foreach ($items as $item): ?>
                         <tr>
+                            <td class="row-order">
+                                <button type="button" class="btn btn-secondary btn-sm" data-move-row="up" title="上移">↑</button>
+                                <button type="button" class="btn btn-secondary btn-sm" data-move-row="down" title="下移">↓</button>
+                            </td>
                             <td>
                                 <input type="hidden" name="id[]" value="<?php echo e($item['id'] ?? ''); ?>">
                                 <input type="text" name="name[]" value="<?php echo e($item['name'] ?? ''); ?>" required placeholder="工具名称">
@@ -115,6 +120,10 @@ $items = $data['tools'] ?? [];
 
 <template id="tool-row-tpl">
     <tr>
+        <td class="row-order">
+            <button type="button" class="btn btn-secondary btn-sm" data-move-row="up" title="上移">↑</button>
+            <button type="button" class="btn btn-secondary btn-sm" data-move-row="down" title="下移">↓</button>
+        </td>
         <td>
             <input type="hidden" name="id[]" value="">
             <input type="text" name="name[]" value="" required placeholder="工具名称">
@@ -130,4 +139,8 @@ $items = $data['tools'] ?? [];
         </td>
     </tr>
 </template>
+<style>
+.row-order { display:flex; flex-direction:column; gap:4px; align-items:center; white-space:nowrap; }
+.row-order .btn { min-width: 34px; padding-left: 8px; padding-right: 8px; }
+</style>
 <?php admin_layout_end(); ?>

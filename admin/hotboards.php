@@ -162,7 +162,63 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         flash_set('success', '已清除吾爱登录凭证');
         redirect('hotboards.php#52pojie-auth');
     }
-    if ($action === 'test_52pojie') {
+        if ($action === 'save_52pojie_cookie') {
+        $cookie = (string) ($_POST['pojie_cookie'] ?? '');
+        $username = trim((string) ($_POST['pojie_username'] ?? ''));
+        if (function_exists('hot_normalize_cookie_header')) {
+            $cookie = hot_normalize_cookie_header($cookie);
+        } else {
+            $cookie = trim(str_replace(["\r", "\n", "\0"], '', $cookie));
+        }
+        if ($cookie === '') {
+            flash_set('error', '请粘贴完整 Cookie');
+            redirect('hotboards.php#52pojie-auth');
+        }
+        $hasAuth = preg_match('/htVC_\d+_auth=/i', $cookie) === 1 || stripos($cookie, '_auth=') !== false;
+        $hasSalt = preg_match('/htVC_\d+_saltkey=/i', $cookie) === 1 || stripos($cookie, 'saltkey=') !== false;
+        if (!$hasAuth || !$hasSalt) {
+            flash_set('error', 'Cookie 不完整：需包含 htVC_*_auth 与 htVC_*_saltkey（请在已登录状态下复制）');
+            redirect('hotboards.php#52pojie-auth');
+        }
+        $ok = hot_52pojie_save_credentials([
+            'cookie' => $cookie,
+            'username' => $username,
+            'mode' => 'cookie',
+            'force_cookie' => 1,
+            'source' => 'manual',
+        ]);
+        if (!$ok) {
+            flash_set('error', '凭证保存失败，请检查数据库连接');
+            redirect('hotboards.php#52pojie-auth');
+        }
+        $test = hot_52pojie_test_auth();
+        if (!empty($test['ok'])) {
+            if (!empty($test['username'])) {
+                hot_52pojie_save_credentials([
+                    'cookie' => $cookie,
+                    'username' => $test['username'],
+                    'mode' => 'cookie',
+                    'force_cookie' => 1,
+                    'source' => 'manual',
+                ]);
+            }
+            admin_log_write('hotboards_52pojie_save', '手动保存吾爱 Cookie 成功', [
+                'module' => 'hotboards',
+                'level' => 'success',
+                'detail' => ['username' => $test['username'] ?? $username],
+            ]);
+            flash_set('success', $test['message'] ?? 'Cookie 已保存并验证通过');
+        } else {
+            admin_log_write('hotboards_52pojie_save', '手动保存吾爱 Cookie（探测未通过）', [
+                'module' => 'hotboards',
+                'level' => 'warning',
+                'detail' => ['message' => $test['message'] ?? ''],
+            ]);
+            flash_set('error', 'Cookie 已保存，但探测失败：' . ($test['message'] ?? '未知错误'));
+        }
+        redirect('hotboards.php#52pojie-auth');
+    }
+if ($action === 'test_52pojie') {
         $result = hot_52pojie_test_auth();
         if (!empty($result['ok'])) {
             flash_set('success', $result['message'] ?? '测试成功');
@@ -609,10 +665,33 @@ admin_layout_start('今日热榜', 'hotboards');
         </form>
     </div>
 
+    <details class="auth-advanced" style="margin-top:16px;" open>
+        <summary>直接粘贴 Cookie（推荐）</summary>
+        <form method="post" class="stack-form" style="margin-top:12px;">
+            <?php echo csrf_field(); ?>
+            <input type="hidden" name="action" value="save_52pojie_cookie">
+            <label>
+                <span>用户名（可选）</span>
+                <input type="text" name="pojie_username" maxlength="80" placeholder="便于后台识别" value="<?php echo e($cred52['username'] ?? ''); ?>">
+            </label>
+            <label>
+                <span>Cookie <span style="color:#dc2626">*</span></span>
+                <textarea name="pojie_cookie" rows="5" required placeholder="F12 → Network → 任意 www.52pojie.cn 请求 → Request Headers → Cookie 整段粘贴。必须含 htVC_*_auth 与 htVC_*_saltkey"></textarea>
+            </label>
+            <p class="muted" style="font-size:0.85rem;line-height:1.6;">
+                请在<strong>已登录</strong>状态下复制；不要只复制 connect_* 字段。
+                保存后会自动探测热榜页与登录态。
+            </p>
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">保存并测试 Cookie</button>
+            </div>
+        </form>
+    </details>
+
     <div class="muted" style="margin-top:16px;line-height:1.7;font-size:0.9rem;">
         <strong>流程：</strong>
-        点击「开始 OAuth 授权」→ 登录吾爱 → 粘贴 Cookie 完成授权 → 服务端持久化 → 热榜抓取自动带 Cookie。
-        授权会话 <strong>15 分钟</strong>内有效（state 防伪）；超时请重新发起。
+        可直接在上方粘贴 Cookie；或点击「开始 OAuth 授权」→ 登录吾爱 → 粘贴 Cookie。
+        OAuth 会话 <strong>15 分钟</strong>内有效（state 防伪）；超时请重新发起。
     </div>
 </div>
 
