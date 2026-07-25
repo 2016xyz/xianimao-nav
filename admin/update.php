@@ -140,7 +140,19 @@ $localEnv = function_exists('updater_local_env_check') ? updater_local_env_check
 $remote = updater_fetch_remote(false);
 $local = updater_local_version(); // 可能被其它请求改写，再读一次
 
-$channelLabel = ($local['channel'] ?? 'master') === 'release' ? 'GitHub Release' : 'master 分支';
+$channelPref = ($local['channel'] ?? 'master') === 'release' ? 'release' : 'master';
+$channelLabel = $channelPref === 'release' ? 'GitHub Release' : 'master 分支';
+// 实际检测结果可能回退到 master 分支：界面展示真实通道，避免“配置为 Release 但显示分支”造成误解
+if (!empty($remote['ok'])) {
+    $actual = (string) ($remote['channel'] ?? '');
+    if ($actual === 'branch' || $actual === 'master') {
+        $channelLabel = $channelPref === 'release'
+            ? 'GitHub Release → 回退 master 分支'
+            : 'master 分支';
+    } elseif ($actual === 'release') {
+        $channelLabel = 'GitHub Release';
+    }
+}
 $hasUpdate = !empty($remote['ok']) && !empty($remote['update_available']);
 $canImport = !empty($localEnv['ok']);
 
@@ -175,7 +187,10 @@ admin_layout_start('系统更新', 'update');
                 <div style="font-size:20px;font-weight:700;margin-top:4px;">v<?php echo e($remote['version'] ?? ''); ?></div>
                 <div class="muted" style="font-size:12px;margin-top:6px;">
                     <?php echo e($remote['name'] ?? ''); ?>
-                    · <?php echo e($remote['commit'] ?? ''); ?>
+                    · 声明 <?php echo e($remote['commit'] ?? '—'); ?>
+                    <?php if (!empty($remote['head_commit']) && strtolower((string) $remote['head_commit']) !== strtolower((string) ($remote['commit'] ?? ''))): ?>
+                        · HEAD <?php echo e($remote['head_commit']); ?>
+                    <?php endif; ?>
                 </div>
             <?php else: ?>
                 <div style="font-size:16px;font-weight:600;margin-top:8px;color:#b45309;">检测失败</div>

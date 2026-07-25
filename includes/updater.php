@@ -549,8 +549,10 @@ function updater_fetch_remote($force = false)
     }
     $date = (string) ($json['commit']['committer']['date'] ?? $json['commit']['author']['date'] ?? '');
 
-    // 尝试从仓库 config/version.php 读取远程版本号（raw）
+    // 尝试从仓库 config/version.php 读取远程版本声明（raw）
     $remoteVersion = $local['version'] ?? '0.0.0';
+    $remoteDeclaredCommit = '';
+    $remoteBuild = '';
     $rawUrl = "https://raw.githubusercontent.com/{$owner}/{$name}/{$branch}/config/version.php";
     $rawRes = updater_http_get($rawUrl, 15);
     if (!empty($rawRes['ok']) && is_string($rawRes['body']) && strpos($rawRes['body'], 'version') !== false) {
@@ -558,16 +560,29 @@ function updater_fetch_remote($force = false)
             || preg_match('/"version"\\s*=>\\s*"([^"]+)"/', $rawRes['body'], $m)) {
             $remoteVersion = $m[1];
         }
+        if (preg_match("/'commit'\\s*=>\\s*'([^']*)'/", $rawRes['body'], $m)
+            || preg_match('/"commit"\\s*=>\\s*"([^"]*)"/', $rawRes['body'], $m)) {
+            $remoteDeclaredCommit = strtolower(trim((string) $m[1]));
+        }
+        if (preg_match("/'build'\\s*=>\\s*'([^']*)'/", $rawRes['body'], $m)
+            || preg_match('/"build"\\s*=>\\s*"([^"]*)"/', $rawRes['body'], $m)) {
+            $remoteBuild = trim((string) $m[1]);
+        }
     }
 
+    // 更新比较优先使用 version.php 声明的 commit；HEAD 仅作展示与下载锚点
+    $compareCommit = $remoteDeclaredCommit !== '' ? $remoteDeclaredCommit : $short;
     $zip = "https://github.com/{$owner}/{$name}/archive/refs/heads/{$branch}.zip";
     $remote = [
         'ok' => true,
         'channel' => 'branch',
         'branch' => $branch,
         'version' => $remoteVersion,
+        'build' => $remoteBuild,
         'tag' => '',
-        'commit' => $short,
+        'commit' => $compareCommit,
+        'head_commit' => $short,
+        'declared_commit' => $remoteDeclaredCommit,
         'sha' => $sha,
         'published_at' => $date,
         'name' => '分支 ' . $branch . ' @ ' . $short,
@@ -588,20 +603,32 @@ function updater_fetch_remote($force = false)
  */
 function updater_is_update_available(array $local, array $remote)
 {
-    $localCommit = strtolower(trim((string) ($local['commit'] ?? '')));
-    $remoteCommit = strtolower(trim((string) ($remote['commit'] ?? $remote['sha'] ?? '')));
-    if ($localCommit !== '' && $remoteCommit !== '') {
-        $lc = substr($localCommit, 0, 7);
-        $rc = substr($remoteCommit, 0, 7);
-        if ($lc !== $rc) {
-            // commit 不同：若远程 version 文件版本不低于本地，或仅 commit 前进，均视为可更新
-            $vc = updater_version_compare($remote['version'] ?? '0.0.0', $local['version'] ?? '0.0.0');
-            return $vc >= 0;
-        }
-        // commit 相同
+    $localVersion = (string) ($local['version'] ?? '0.0.0');
+    $remoteVersion = (string) ($remote['version'] ?? '0.0.0');
+    $vc = updater_version_compare($remoteVersion, $localVersion);
+    if ($vc > 0) {
+        return true;
+    }
+    if ($vc < 0) {
+        // 远程版本号更低：不提示更新（防止回退）
         return false;
     }
-    return updater_version_compare($remote['version'] ?? '0.0.0', $local['version'] ?? '0.0.0') > 0;
+
+    // 版本号相同：比较 version.php 声明的 commit（避免「仅同步 version 的 chore 提交」造成永久可更新）
+    $localCommit = strtolower(trim((string) ($local['commit'] ?? '')));
+    $remoteCommit = strtolower(trim((string) (
+        $remote['declared_commit']
+        ?? $remote['commit']
+        ?? $remote['sha']
+        ?? ''
+    )));
+    if ($localCommit === '' || $remoteCommit === '') {
+        // 无 commit 时同版本视为已是最新
+        return false;
+    }
+    $lc = substr($localCommit, 0, 7);
+    $rc = substr($remoteCommit, 0, 7);
+    return $lc !== $rc;
 }
 
 /**

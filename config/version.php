@@ -5,10 +5,11 @@
  */
 return [
     'name' => '网址导航',
-    'version' => '1.2.2',
-    'build' => '20260724',
+    'version' => '1.2.3',
+    'build' => '20260725',
     // 最近发布对应的 git commit（短/长 SHA 均可）；空则仅按 version 比较
-    'commit' => '92e8a63',
+    // 发布提交后由 chore 同步为实际 SHA
+    'commit' => 'a6e2767',
     // 默认更新通道：master 分支最新提交，或 GitHub releases
     'channel' => 'master',
     'repo' => '2016xyz/xianimao-nav',
