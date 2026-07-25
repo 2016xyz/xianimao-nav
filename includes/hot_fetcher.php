@@ -973,6 +973,12 @@ function hot_to_utf8($text, $charset = '')
     if ($text === '') {
         return '';
     }
+    // 已是有效 UTF-8（含中文）时勿再按 GBK 误转
+    if (function_exists('mb_check_encoding') && @mb_check_encoding($text, 'UTF-8')) {
+        if (preg_match('/[\x{4e00}-\x{9fff}]/u', $text) || stripos($text, 'charset=utf-8') !== false) {
+            return $text;
+        }
+    }
     if ($charset !== '' && strtoupper($charset) !== 'UTF-8') {
         if (function_exists('mb_convert_encoding')) {
             $converted = @mb_convert_encoding($text, 'UTF-8', $charset . ',UTF-8');
@@ -1630,8 +1636,34 @@ function hot_fetch_discuz(array $source)
     $body = hot_to_utf8($body, $charset);
 
     $matches = [];
-    if (!preg_match_all('/<a href="(thread-\d+-[^"]+\.html)"[^>]*>([^<]+)<\/a>/u', $body, $m, PREG_SET_ORDER)) {
-        return [[], ''];
+    // 兼容 thread-xxx.html 与 forum.php?mod=viewthread&tid=
+    if (!preg_match_all(
+        '/<a[^>]+href="((?:thread-\d+-[^"]+\.html|forum\.php\?mod=viewthread[^"]*tid=\d+[^"]*))"[^>]*>([^<]+)<\/a>/iu',
+        $body,
+        $m,
+        PREG_SET_ORDER
+    )) {
+        // 宽松：先抓链接再取邻近标题
+        if (!preg_match_all(
+            '/href="((?:thread-\d+-[^"]+\.html|forum\.php\?mod=viewthread[^"]*tid=\d+[^"]*))"/iu',
+            $body,
+            $hrefs
+        )) {
+            return [[], ''];
+        }
+        $m = [];
+        foreach ($hrefs[1] as $href) {
+            $title = $href;
+            // 从链接附近截取可见标题
+            $pos = strpos($body, $href);
+            if ($pos !== false) {
+                $chunk = substr($body, max(0, $pos - 80), 400);
+                if (preg_match('/>([^<]{4,80})</u', $chunk, $tm)) {
+                    $title = trim($tm[1]);
+                }
+            }
+            $m[] = [1 => $href, 2 => $title];
+        }
     }
 
     // 常驻教程/版务贴（非今日热帖主体）
@@ -1651,9 +1683,15 @@ function hot_fetch_discuz(array $source)
             break;
         }
         $href = html_entity_decode(trim($row[1]), ENT_QUOTES, 'UTF-8');
-        $title = html_entity_decode(trim($row[2]), ENT_QUOTES, 'UTF-8');
+        $title = html_entity_decode(trim(strip_tags((string) $row[2])), ENT_QUOTES, 'UTF-8');
         $title = trim(preg_replace('/\s+/u', ' ', $title));
-        if ($title === '' || preg_match('/^\d+$/u', $title) || mb_strlen_safe($title) < 6) {
+        // 仅有链接无标题时用 tid 兜底，避免整页被丢弃
+        if ($title === '' || $title === $href || preg_match('/^(?:thread-|forum\.php)/i', $title)) {
+            if (preg_match('/tid=(\d+)/i', $href, $tm) || preg_match('/thread-(\d+)-/i', $href, $tm)) {
+                $title = '主题 #' . $tm[1];
+            }
+        }
+        if ($title === '' || preg_match('/^\d+$/u', $title) || mb_strlen_safe($title) < 4) {
             continue;
         }
         if (in_array($title, $blockTitles, true)) {

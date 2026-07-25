@@ -1007,6 +1007,113 @@ function oauth_52pojie_handle_callback(array $input)
 }
 
 /**
+ * 吾爱 HTML 是否明显未登录
+ */
+function hot_52pojie_html_need_login($html)
+{
+    $html = (string) $html;
+    if ($html === '') {
+        return false;
+    }
+    if (preg_match('/需要先登录|请先登录|您尚未登录|请登录后|登录后才能/u', $html)) {
+        return true;
+    }
+    // 登录表单明显且无退出入口
+    $hasLoginForm = (bool) preg_match('/member\.php\?mod=logging&amp;action=login|name="username".*name="password"/is', $html);
+    $hasLogout = (bool) preg_match('/action=logout|logging\.php\?action=logout|退出/u', $html);
+    return $hasLoginForm && !$hasLogout;
+}
+
+/**
+ * 吾爱 HTML 是否含登录成功信号
+ */
+function hot_52pojie_html_logged_in($html)
+{
+    $html = (string) $html;
+    if ($html === '') {
+        return false;
+    }
+    if (preg_match('/action=logout|logging\.php\?action=logout|mod=logging&amp;action=logout/i', $html)) {
+        return true;
+    }
+    if (preg_match('/discuz_uid\s*=\s*[\'"]?[1-9]\d*/i', $html)) {
+        return true;
+    }
+    if (preg_match('/space-uid-([1-9]\d*)\.html/i', $html)) {
+        return true;
+    }
+    if (preg_match('/欢迎您|我的消息|我的帖子|个人资料|积分|用户组/u', $html)
+        && !hot_52pojie_html_need_login($html)) {
+        return true;
+    }
+    return false;
+}
+
+/**
+ * 热榜/列表页是否有帖子内容
+ */
+function hot_52pojie_html_has_threads($html)
+{
+    $html = (string) $html;
+    if ($html === '') {
+        return false;
+    }
+    if (preg_match('/thread-\d+-/i', $html)) {
+        return true;
+    }
+    if (preg_match('/forum\.php\?mod=viewthread[^"\'>\s]*tid=\d+/i', $html)) {
+        return true;
+    }
+    if (preg_match('/mod=viewthread&(?:amp;)?tid=\d+/i', $html)) {
+        return true;
+    }
+    // 排行榜容器
+    if (preg_match('/ranklist|view=heats|今日热门|热门主题/iu', $html)
+        && preg_match('/tid=\d+|thread-/i', $html)) {
+        return true;
+    }
+    return false;
+}
+
+/**
+ * 从吾爱 HTML 提取用户名
+ */
+function hot_52pojie_extract_username($html)
+{
+    $html = (string) $html;
+    if ($html === '') {
+        return '';
+    }
+    $patterns = [
+        '/title="访问我的空间">\s*([^<]+?)\s*</u',
+        '/欢迎您[，,\s]*<a[^>]*>\s*([^<]+?)\s*</u',
+        '/欢迎您[，,\s]*([^\s<>]{2,30})/u',
+        '/id="um"[^>]*>[\s\S]{0,800}?<strong>\s*([^<]+?)\s*<\/strong>/u',
+        '/id="um"[^>]*>[\s\S]{0,800}?<a[^>]+href="[^"]*space-uid-\d+\.html"[^>]*>\s*([^<]{2,30})\s*</u',
+        '/cite[^>]*>\s*([^<]{2,30})\s*<\/cite>/u',
+        '/space-uid-\d+\.html[^>]*>\s*([^<]{2,30})\s*</u',
+        '/name="username"\s+value="([^"]{2,30})"/u',
+        '/_auth=[^;]+;[\s\S]{0,200}?>([a-zA-Z0-9_\x{4e00}-\x{9fff}]{2,20})</u',
+    ];
+    foreach ($patterns as $p) {
+        if (preg_match($p, $html, $m)) {
+            $username = trim(html_entity_decode($m[1], ENT_QUOTES, 'UTF-8'));
+            $username = preg_replace('/\s+/u', ' ', $username) ?? $username;
+            $username = trim($username, " \t\n\r\0\x0B\"'");
+            $bad = ['登录', '注册', '首页', '退出', '设置', '消息', '帖子', '积分'];
+            if ($username === '' || in_array($username, $bad, true)) {
+                continue;
+            }
+            $len = function_exists('mb_strlen') ? mb_strlen($username, 'UTF-8') : strlen($username);
+            if ($len >= 2 && $len < 40) {
+                return $username;
+            }
+        }
+    }
+    return '';
+}
+
+/**
  * 测试吾爱 Cookie
  * @return array{ok:bool,message:string,username?:string}
  */
@@ -1020,7 +1127,7 @@ function hot_52pojie_test_auth()
         return ['ok' => false, 'message' => '尚未配置吾爱 Cookie'];
     }
 
-    $hasAuth = preg_match('/htVC_\d+_auth=/i', $cookie) === 1 || stripos($cookie, '_auth=') !== false;
+    $hasAuth = preg_match('/htVC_\d+_auth=/i', $cookie) === 1 || preg_match('/(?:^|;\s*)[^;]*_auth=/i', $cookie) === 1;
     $hasSalt = preg_match('/htVC_\d+_saltkey=/i', $cookie) === 1 || stripos($cookie, 'saltkey=') !== false;
     if (!$hasAuth || !$hasSalt) {
         return [
@@ -1029,72 +1136,102 @@ function hot_52pojie_test_auth()
         ];
     }
 
+    // Cookie 内 uid 线索（connect_uin / lastcheckfeed=UID|...）
+    $cookieUid = '';
+    if (preg_match('/htVC_\d+_lastcheckfeed=(\d+)/i', $cookie, $m)) {
+        $cookieUid = $m[1];
+    } elseif (preg_match('/htVC_\d+_noticonf=(\d+)/i', $cookie, $m)) {
+        $cookieUid = $m[1];
+    }
+
     $hdr = [
         'Cookie: ' . $cookie,
         'Referer: https://www.52pojie.cn/',
-        'Accept: text/html,application/xhtml+xml',
+        'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language: zh-CN,zh;q=0.9,en;q=0.8',
     ];
 
-    // 优先测热榜页（实际抓取目标）
-    $rank = hot_http_get(
-        'https://www.52pojie.cn/misc.php?mod=ranklist&type=thread&view=heats&orderby=today',
-        20,
-        $hdr
-    );
+    $urls = [
+        'rank' => 'https://www.52pojie.cn/misc.php?mod=ranklist&type=thread&view=heats&orderby=today',
+        'home' => 'https://www.52pojie.cn/',
+        'space' => 'https://www.52pojie.cn/home.php?mod=space',
+        'forum' => 'https://www.52pojie.cn/forum.php',
+    ];
+
+    $rank = hot_http_get($urls['rank'], 20, $hdr);
+    $home = null;
     if (!$rank) {
-        $home = hot_http_get('https://www.52pojie.cn/', 15, $hdr);
+        $home = hot_http_get($urls['home'], 15, $hdr);
         if (!$home) {
             return [
                 'ok' => false,
                 'message' => '无法访问吾爱（服务器需启用 curl/openssl，或站点拦截/网络不通）',
             ];
         }
-        return ['ok' => false, 'message' => '能打开首页但热榜页无响应，请稍后重试'];
+        // 首页可通时再试论坛入口
+        $rank = hot_http_get($urls['forum'], 15, $hdr) ?: $home;
     }
 
     $rankUtf = function_exists('hot_to_utf8') ? hot_to_utf8($rank, 'GBK') : $rank;
-    $rankOk = (bool) preg_match('/thread-\d+-/i', $rankUtf);
+    $rankOk = hot_52pojie_html_has_threads($rankUtf);
+    $rankLogged = hot_52pojie_html_logged_in($rankUtf);
+    $rankNeedLogin = hot_52pojie_html_need_login($rankUtf);
 
-    $body = hot_http_get('https://www.52pojie.cn/home.php?mod=space', 20, $hdr);
+    $body = hot_http_get($urls['space'], 20, $hdr);
     $username = '';
+    $spaceLogged = false;
+    $spaceNeedLogin = false;
     if ($body) {
         $body = function_exists('hot_to_utf8') ? hot_to_utf8($body, 'GBK') : $body;
-        $patterns = [
-            '/title="访问我的空间">\s*([^<]+?)\s*</u',
-            '/欢迎您[，,\s]*<a[^>]*>\s*([^<]+?)\s*</u',
-            '/欢迎您[，,\s]*([^\s<>]{2,30})/u',
-            '/id="um"[^>]*>[\s\S]{0,400}?<strong>\s*([^<]+?)\s*<\/strong>/u',
-            '/cite[^>]*>\s*([^<]{2,30})\s*<\/cite>/u',
-            '/space-uid-\d+\.html[^>]*>\s*([^<]{2,30})\s*</u',
-        ];
-        foreach ($patterns as $p) {
-            if (preg_match($p, $body, $m)) {
-                $username = trim(html_entity_decode($m[1], ENT_QUOTES, 'UTF-8'));
-                $username = preg_replace('/\s+/u', ' ', $username) ?? $username;
-                if ($username !== '' && (function_exists('mb_strlen') ? mb_strlen($username) : strlen($username)) < 40) {
-                    break;
-                }
-                $username = '';
-            }
-        }
-        $needLogin = (strpos($body, '需要先登录') !== false)
-            || ((strpos($body, 'member.php?mod=logging') !== false) && $username === '');
-        if ($needLogin && $username === '' && !$rankOk) {
-            return ['ok' => false, 'message' => 'Cookie 可能无效或已过期，请重新登录吾爱后复制 Cookie'];
+        $username = hot_52pojie_extract_username($body);
+        $spaceLogged = hot_52pojie_html_logged_in($body);
+        $spaceNeedLogin = hot_52pojie_html_need_login($body);
+        if (!$rankOk) {
+            $rankOk = hot_52pojie_html_has_threads($body);
         }
     }
 
-    if ($username !== '' || $rankOk) {
+    if (($spaceNeedLogin || $rankNeedLogin) && $username === '' && !$rankLogged && !$spaceLogged && !$rankOk) {
+        return ['ok' => false, 'message' => 'Cookie 可能无效或已过期，请重新登录吾爱后复制完整 Cookie'];
+    }
+
+    if ($username !== '' || $rankOk || $rankLogged || $spaceLogged) {
+        $parts = [];
+        if ($username !== '') {
+            $parts[] = '登录有效：' . $username;
+        } elseif ($cookieUid !== '') {
+            $parts[] = '登录有效（uid ' . $cookieUid . '）';
+        } elseif ($rankLogged || $spaceLogged) {
+            $parts[] = '登录态有效';
+        } else {
+            $parts[] = 'Cookie 结构有效';
+        }
+        if ($rankOk) {
+            $parts[] = '热榜/帖子列表可访问';
+        } else {
+            $parts[] = '页面可达，抓取时将带 Cookie';
+        }
         return [
             'ok' => true,
-            'message' => $username !== ''
-                ? ('登录有效：' . $username . ($rankOk ? '，热榜页可访问' : '（热榜解析待刷新）'))
-                : 'Cookie 可用，已能访问热榜页',
+            'message' => implode('，', $parts),
             'username' => $username,
         ];
     }
 
-    return ['ok' => false, 'message' => '未能确认登录态：请确认 Cookie 含 auth/saltkey 且未过期后重试'];
+    // 页面有响应且 Cookie 字段完整：允许保存，避免因模板改版误报失败
+    if (is_string($rank) && strlen($rank) > 200 && !$rankNeedLogin && !$spaceNeedLogin) {
+        return [
+            'ok' => true,
+            'message' => 'Cookie 已接受且站点可访问（页面结构变化，未能解析用户名；抓取仍会带登录态）'
+                . ($cookieUid !== '' ? '，uid ' . $cookieUid : ''),
+            'username' => $username,
+        ];
+    }
+
+    return [
+        'ok' => false,
+        'message' => '未能确认登录态：请重新登录 www.52pojie.cn 后，从 F12 → Network → 任意请求复制完整 Cookie 重试',
+    ];
 }
 
 function mb_substr_safe($str, $start, $len)

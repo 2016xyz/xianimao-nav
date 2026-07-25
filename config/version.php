@@ -5,7 +5,7 @@
  */
 return [
     'name' => '网址导航',
-    'version' => '1.2.3',
+    'version' => '1.2.4',
     'build' => '20260725',
     // 最近发布对应的 git commit（短/长 SHA 均可）；空则仅按 version 比较
     // 发布提交后由 chore 同步为实际 SHA
