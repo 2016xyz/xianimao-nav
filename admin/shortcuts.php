@@ -49,6 +49,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($action === 'move' && isset($list[$index])) {
         $list = move_list_item($list, $index, $_POST['direction'] ?? '');
         flash_set('success', '排序已更新');
+    } else {
+        flash_set('error', '未知操作或目标不存在');
+        redirect('shortcuts.php');
     }
 
     $content['shortcuts'] = array_values($list);

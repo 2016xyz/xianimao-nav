@@ -9,51 +9,21 @@
 if (!function_exists('security_login_store_path')) {
     function security_login_store_path()
     {
-        $dir = (defined('ROOT_PATH') ? ROOT_PATH : dirname(__DIR__)) . '/data/cache';
-        if (!is_dir($dir)) {
-            @mkdir($dir, 0755, true);
-        }
-        return $dir . '/login_lock.json';
+        return security_login_lock_file();
     }
 }
 
 if (!function_exists('security_login_store_load')) {
     function security_login_store_load()
     {
-        $file = security_login_store_path();
-        if (!is_file($file)) {
-            return [];
-        }
-        $j = json_decode((string) @file_get_contents($file), true);
-        return is_array($j) ? $j : [];
+        return security_login_lock_load();
     }
 }
 
 if (!function_exists('security_login_store_save')) {
     function security_login_store_save(array $data)
     {
-        $file = security_login_store_path();
-        $tmp = $file . '.tmp';
-        // 清理过期条目
-        $now = time();
-        foreach ($data as $k => $st) {
-            if (!is_array($st)) {
-                unset($data[$k]);
-                continue;
-            }
-            $until = (int) ($st['locked_until'] ?? 0);
-            $first = (int) ($st['first'] ?? 0);
-            if ($until > 0 && $until <= $now && ($now - $first) > 3600) {
-                unset($data[$k]);
-            } elseif ($until <= 0 && $first > 0 && ($now - $first) > 3600) {
-                unset($data[$k]);
-            }
-        }
-        @file_put_contents($tmp, json_encode($data, JSON_UNESCAPED_UNICODE), LOCK_EX);
-        if (!@rename($tmp, $file)) {
-            @copy($tmp, $file);
-            @unlink($tmp);
-        }
+        return security_login_lock_save($data);
     }
 }
 if (!function_exists('security_client_ip')) {
@@ -289,10 +259,11 @@ if (!function_exists('security_safe_redirect_target')) {
             return $fallback;
         }
         // 使用 ~ 作定界符，避免与路径中的 # 冲突
-        if (!preg_match('~^[a-zA-Z0-9_./?&=%\-]+$~', $url)) {
+        if (!preg_match('~^[a-zA-Z0-9_./?&=%\-#]+$~', $url)) {
             return $fallback;
         }
-        if (strpos($url, '..') !== false) {
+        $decodedUrl = rawurldecode($url);
+        if (strpos($url, '..') !== false || strpos($decodedUrl, '..') !== false) {
             return $fallback;
         }
         if (preg_match('#(^|/)(config|data|includes|scripts)(/|$)#i', $url)) {

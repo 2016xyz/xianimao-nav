@@ -428,10 +428,11 @@ function install_run(array $input)
         install_run_schema($pdo);
     } catch (Throwable $e) {
         @unlink(INSTALL_LOCK_FILE);
+        @unlink(DB_CONFIG_FILE);
         return [
             'ok' => false,
             'message' => '创建数据表失败：' . $e->getMessage()
-                . '。配置已写入，可修复权限后重试或清理库表后重装。',
+                . '。已回滚配置文件，请修复后重新安装。',
         ];
     }
 
@@ -444,10 +445,11 @@ function install_run(array $input)
             $pdo->rollBack();
         }
         @unlink(INSTALL_LOCK_FILE);
+        @unlink(DB_CONFIG_FILE);
         return [
             'ok' => false,
             'message' => '初始化数据失败：' . $e->getMessage()
-                . '。配置与表结构可能已存在，请检查后重试或手工完成种子数据。',
+                . '。已回滚配置文件，表结构可能已存在，请检查后重新安装。',
         ];
     }
 

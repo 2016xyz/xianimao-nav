@@ -123,5 +123,45 @@ assert_true(strpos($inst, 'install_verify_csrf') !== false, 'install has CSRF');
 $lo = file_get_contents($root . '/admin/logout.php');
 assert_true(strpos($lo, 'REQUEST_METHOD') !== false && strpos($lo, 'verify_csrf') !== false, 'logout CSRF POST');
 
+assert_true(defined('APP_VERSION') && APP_VERSION !== '', 'APP_VERSION defined');
+assert_true(asset_url('assets/__not_exists__.css') === 'assets/__not_exists__.css?v=' . rawurlencode((string) APP_VERSION), 'asset_url falls back to APP_VERSION');
+
+$secSrc = (string) file_get_contents($root . '/includes/security.php');
+assert_true(strpos($secSrc, 'function security_ssl_verify_peer') === false, 'security.php no duplicate ssl helper');
+$rfSsl = new ReflectionFunction('security_ssl_verify_peer');
+assert_true(basename((string) $rfSsl->getFileName()) === 'security_ssl.php', 'ssl helper resolves to security_ssl.php');
+
+assert_true(security_safe_redirect_target('hotboards.php#52pojie-auth') === 'hotboards.php#52pojie-auth', 'redirect keeps anchor');
+assert_true(security_safe_redirect_target('../config/database.php') === 'index.php', 'redirect rejects traversal');
+assert_true(security_safe_redirect_target('%2e%2e/config/x.php') === 'index.php', 'redirect rejects encoded traversal');
+assert_true(security_safe_redirect_target('https://evil.com/') === 'index.php', 'redirect rejects absolute');
+$hardSrc = (string) file_get_contents($root . '/includes/security_hardening.php');
+assert_true(strpos($hardSrc, '%\-#]+$~') !== false, 'hardening redirect regex allows anchor');
+
+assert_true(security_login_store_path() === security_login_lock_file(), 'login store path unified');
+
+$hb = (string) file_get_contents($root . '/admin/hotboards.php');
+assert_true(strpos($hb, "value=\"save_52pojie_cookie\"") !== false, 'hotboards cookie form exists');
+assert_true(strpos($hb, "\$action === 'save_52pojie_cookie'") !== false, 'hotboards handles save_52pojie_cookie');
+assert_true(function_exists('hot_52pojie_save_credentials'), 'hot_52pojie_save_credentials exists');
+
+$apiSrc = (string) file_get_contents($root . '/api/send_form_code.php');
+assert_true(strpos($apiSrc, 'http_response_code(405)') !== false, 'api 405 on wrong method');
+assert_true(strpos($apiSrc, 'http_response_code(403)') !== false, 'api 403 on csrf fail');
+assert_true(strpos($apiSrc, '429') !== false && strpos($apiSrc, 'rate_limited') !== false, 'api 429 on rate limit');
+
+$mailSrc = (string) file_get_contents($root . '/includes/mailer.php');
+assert_true(strpos($mailSrc, '{$data[\'name\']}') === false, 'mailer text body uses null-safe access');
+assert_true(strpos($mailSrc, "'rate_limited' => true") !== false, 'mailer flags rate limit');
+
+$instSrc = (string) file_get_contents($root . '/includes/install.php');
+assert_true(substr_count($instSrc, '@unlink(DB_CONFIG_FILE)') >= 3, 'install rolls back db config on failure');
+
+$vueSrc = (string) file_get_contents($root . '/admin/assets/admin-vue.js');
+assert_true(strpos($vueSrc, 'bootEl.content') !== false, 'admin-vue reads template content');
+
+$scSrc = (string) file_get_contents($root . '/admin/shortcuts.php');
+assert_true(strpos($scSrc, '未知操作或目标不存在') !== false, 'shortcuts rejects unknown action');
+
 echo $fail === 0 ? "\nALL_CHECKS_PASSED\n" : "\nFAILED=$fail\n";
 exit($fail === 0 ? 0 : 1);

@@ -574,7 +574,7 @@ function mailer_form_code_ip_throttle($record = false)
         }
     }
     if (count($hits) >= $max) {
-        return ['ok' => false, 'message' => '发送次数过多，请稍后再试'];
+        return ['ok' => false, 'message' => '发送次数过多，请稍后再试', 'rate_limited' => true];
     }
     if ($record) {
         $hits[] = $now;
@@ -691,7 +691,7 @@ function mailer_send_form_code($email, $scope = 'message')
     $last = (int) ($_SESSION[$rateKey] ?? 0);
     if ($last > 0 && (time() - $last) < 60) {
         $wait = 60 - (time() - $last);
-        return ['ok' => false, 'message' => '发送过于频繁，请 ' . $wait . ' 秒后再试'];
+        return ['ok' => false, 'message' => '发送过于频繁，请 ' . $wait . ' 秒后再试', 'rate_limited' => true];
     }
 
     // IP 级限流预检（防换 Session 刷邮件；成功发送后再记一次）
@@ -860,7 +860,12 @@ function mailer_notify_admin_submission($type, array $data)
 HTML;
 
     $subject = '【' . $siteName . '】' . $title . ($name !== '' ? ' - ' . html_entity_decode(strip_tags($name), ENT_QUOTES, 'UTF-8') : '');
-    $text = $title . "\n名称：{$data['name']}\n邮箱：{$data['email']}\n网站：{$data['website']}\n内容：{$data['content']}\n时间：{$time}";
+    $text = $title
+        . "\n名称：" . (string) ($data['name'] ?? '')
+        . "\n邮箱：" . (string) ($data['email'] ?? '')
+        . "\n网站：" . (string) ($data['website'] ?? '')
+        . "\n内容：" . (string) ($data['content'] ?? '')
+        . "\n时间：" . $time;
     return mailer_send($to, $subject, $html, $text);
 }
 

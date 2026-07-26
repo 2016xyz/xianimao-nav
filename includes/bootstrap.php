@@ -7,6 +7,16 @@ define('ROOT_PATH', dirname(__DIR__));
 define('HOT_BOARDS_FILE', ROOT_PATH . '/config/hot_boards.php');
 define('AUTH_FILE', ROOT_PATH . '/config/auth.php'); // 兼容旧文件，已改用数据库 admins 表
 
+if (!defined('APP_VERSION')) {
+    $appVersionMeta = is_file(ROOT_PATH . '/config/version.php')
+        ? @include ROOT_PATH . '/config/version.php'
+        : null;
+    define('APP_VERSION', (is_array($appVersionMeta) && !empty($appVersionMeta['version']))
+        ? (string) $appVersionMeta['version']
+        : '0');
+    unset($appVersionMeta);
+}
+
 require_once __DIR__ . '/security.php';
 require_once __DIR__ . '/security_ssl.php';
 require_once __DIR__ . '/security_hardening.php';

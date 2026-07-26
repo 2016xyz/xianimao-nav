@@ -16,7 +16,8 @@
   var boot = { pageTitle: '', username: '管理员', page: '', hasFlash: false };
   if (bootEl) {
     try {
-      boot = JSON.parse(bootEl.textContent || '{}');
+      var bootText = bootEl.content ? bootEl.content.textContent : bootEl.textContent;
+      boot = JSON.parse(bootText || '{}');
     } catch (e) { /* ignore */ }
   }
 

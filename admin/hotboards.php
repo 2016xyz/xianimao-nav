@@ -162,63 +162,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         flash_set('success', '已清除吾爱登录凭证');
         redirect('hotboards.php#52pojie-auth');
     }
-        if ($action === 'save_52pojie_cookie') {
-        $cookie = (string) ($_POST['pojie_cookie'] ?? '');
-        $username = trim((string) ($_POST['pojie_username'] ?? ''));
-        if (function_exists('hot_normalize_cookie_header')) {
-            $cookie = hot_normalize_cookie_header($cookie);
-        } else {
-            $cookie = trim(str_replace(["\r", "\n", "\0"], '', $cookie));
-        }
-        if ($cookie === '') {
-            flash_set('error', '请粘贴完整 Cookie');
-            redirect('hotboards.php#52pojie-auth');
-        }
-        $hasAuth = preg_match('/htVC_\d+_auth=/i', $cookie) === 1 || stripos($cookie, '_auth=') !== false;
-        $hasSalt = preg_match('/htVC_\d+_saltkey=/i', $cookie) === 1 || stripos($cookie, 'saltkey=') !== false;
-        if (!$hasAuth || !$hasSalt) {
-            flash_set('error', 'Cookie 不完整：需包含 htVC_*_auth 与 htVC_*_saltkey（请在已登录状态下复制）');
-            redirect('hotboards.php#52pojie-auth');
-        }
-        $ok = hot_52pojie_save_credentials([
-            'cookie' => $cookie,
-            'username' => $username,
-            'mode' => 'cookie',
-            'force_cookie' => 1,
-            'source' => 'manual',
-        ]);
-        if (!$ok) {
-            flash_set('error', '凭证保存失败，请检查数据库连接');
-            redirect('hotboards.php#52pojie-auth');
-        }
-        $test = hot_52pojie_test_auth();
-        if (!empty($test['ok'])) {
-            if (!empty($test['username'])) {
-                hot_52pojie_save_credentials([
-                    'cookie' => $cookie,
-                    'username' => $test['username'],
-                    'mode' => 'cookie',
-                    'force_cookie' => 1,
-                    'source' => 'manual',
-                ]);
-            }
-            admin_log_write('hotboards_52pojie_save', '手动保存吾爱 Cookie 成功', [
-                'module' => 'hotboards',
-                'level' => 'success',
-                'detail' => ['username' => $test['username'] ?? $username],
-            ]);
-            flash_set('success', $test['message'] ?? 'Cookie 已保存并验证通过');
-        } else {
-            admin_log_write('hotboards_52pojie_save', '手动保存吾爱 Cookie（探测未通过）', [
-                'module' => 'hotboards',
-                'level' => 'warning',
-                'detail' => ['message' => $test['message'] ?? ''],
-            ]);
-            flash_set('error', 'Cookie 已保存，但探测失败：' . ($test['message'] ?? '未知错误'));
-        }
-        redirect('hotboards.php#52pojie-auth');
-    }
-if ($action === 'test_52pojie') {
+    if ($action === 'test_52pojie') {
         $result = hot_52pojie_test_auth();
         if (!empty($result['ok'])) {
             flash_set('success', $result['message'] ?? '测试成功');
@@ -244,6 +188,49 @@ if ($action === 'test_52pojie') {
             }
         } else {
             flash_set('error', '未找到 52pojie 源配置');
+        }
+        redirect('hotboards.php#52pojie-auth');
+    }
+
+    if ($action === 'save_52pojie_cookie') {
+        $pojieCookie = trim((string) ($_POST['pojie_cookie'] ?? ''));
+        $pojieUser = security_clean_text((string) ($_POST['pojie_username'] ?? ''), 80);
+        if ($pojieCookie === '') {
+            flash_set('error', '请粘贴吾爱 Cookie');
+            redirect('hotboards.php#52pojie-auth');
+        }
+        $saved = hot_52pojie_save_credentials([
+            'cookie' => $pojieCookie,
+            'username' => $pojieUser,
+            'mode' => 'cookie',
+            'force_cookie' => 1,
+            'source' => 'manual',
+        ]);
+        if (!$saved) {
+            admin_log_write('hotboards_52pojie_cookie_fail', '保存吾爱 Cookie 失败', [
+                'module' => 'hotboards',
+                'level' => 'error',
+            ]);
+            flash_set('error', '吾爱 Cookie 保存失败，请检查 config/data 目录写权限');
+            redirect('hotboards.php#52pojie-auth');
+        }
+        admin_log_write('hotboards_52pojie_cookie', '保存吾爱登录 Cookie', [
+            'module' => 'hotboards',
+            'level' => 'warning',
+        ]);
+        $test = hot_52pojie_test_auth();
+        if (!empty($test['ok'])) {
+            $detected = trim((string) ($test['username'] ?? ''));
+            if ($detected !== '' && $detected !== $pojieUser) {
+                hot_52pojie_save_credentials([
+                    'username' => $detected,
+                    'mode' => 'cookie',
+                    'source' => 'manual',
+                ]);
+            }
+            flash_set('success', 'Cookie 已保存：' . ($test['message'] ?? '登录态可用'));
+        } else {
+            flash_set('error', 'Cookie 已保存，但探测失败：' . ($test['message'] ?? '未能确认登录态'));
         }
         redirect('hotboards.php#52pojie-auth');
     }
@@ -407,8 +394,10 @@ admin_layout_start('今日热榜', 'hotboards');
                             </td>
                             <td>
                                 <div class="order-btns">
-                                    <button type="button" class="btn btn-secondary btn-sm" data-move="up" title="上移">↑</button>
-                                    <button type="button" class="btn btn-secondary btn-sm" data-move="down" title="下移">↓</button>
+                                    <button type="button" class="btn btn-secondary btn-sm" data-move="up"
+                                        title="上移">↑</button>
+                                    <button type="button" class="btn btn-secondary btn-sm" data-move="down"
+                                        title="下移">↓</button>
                                 </div>
                             </td>
                             <td>
@@ -448,7 +437,8 @@ admin_layout_start('今日热榜', 'hotboards');
         <div>
             <h2>Linux.do · OAuth 授权</h2>
             <p class="muted">
-                使用官方 <a href="https://connect.linux.do/" target="_blank" rel="noopener">Linux DO Connect</a> OAuth2 + <strong>PKCE</strong> 授权；
+                使用官方 <a href="https://connect.linux.do/" target="_blank" rel="noopener">Linux DO Connect</a> OAuth2 +
+                <strong>PKCE</strong> 授权；
                 持久化 <code>access_token</code> / <code>refresh_token</code>，过期自动刷新；
                 有 <code>api_key</code> 时优先，否则以 Bearer 拉取热榜。凭证仅存服务端密钥块。
             </p>
@@ -460,10 +450,13 @@ admin_layout_start('今日热榜', 'hotboards');
             鉴权：
             <?php if ($authReady): ?>
                 <strong style="color:#047857;">已就绪</strong>
-                <?php if ($hasApi): ?><span class="tag" style="background:#ecfdf5;color:#047857;">API Key</span><?php endif; ?>
-                <?php if ($hasCookie): ?><span class="tag" style="background:#ecfdf5;color:#047857;">Cookie</span><?php endif; ?>
+                <?php if ($hasApi): ?><span class="tag" style="background:#ecfdf5;color:#047857;">API
+                        Key</span><?php endif; ?>
+                <?php if ($hasCookie): ?><span class="tag"
+                        style="background:#ecfdf5;color:#047857;">Cookie</span><?php endif; ?>
                 <?php if ($hasOAuthToken): ?>
-                    <span class="tag" style="background:<?php echo $oauthTokenValid ? '#ecfdf5' : '#fff7ed'; ?>;color:<?php echo $oauthTokenValid ? '#047857' : '#c2410c'; ?>;">
+                    <span class="tag"
+                        style="background:<?php echo $oauthTokenValid ? '#ecfdf5' : '#fff7ed'; ?>;color:<?php echo $oauthTokenValid ? '#047857' : '#c2410c'; ?>;">
                         OAuth <?php echo $oauthTokenValid ? '有效' : '已过期/待刷新'; ?>
                     </span>
                 <?php endif; ?>
@@ -475,7 +468,8 @@ admin_layout_start('今日热榜', 'hotboards');
             <span class="tag" style="background:#eff6ff;color:#1d4ed8;">PKCE S256</span>
         <?php endif; ?>
         <?php if ($oauthBoundUser !== ''): ?>
-            <span class="muted">用户：<?php echo e($oauthBoundUser); ?><?php if ($oauthBoundAt !== ''): ?> · 绑定 <?php echo e($oauthBoundAt); ?><?php endif; ?></span>
+            <span class="muted">用户：<?php echo e($oauthBoundUser); ?><?php if ($oauthBoundAt !== ''): ?> · 绑定
+                    <?php echo e($oauthBoundAt); ?>     <?php endif; ?></span>
         <?php endif; ?>
         <?php if (!empty($oauthStatus['expires_at_text'])): ?>
             <span class="muted">令牌到期：<?php echo e($oauthStatus['expires_at_text']); ?></span>
@@ -494,7 +488,8 @@ admin_layout_start('今日热榜', 'hotboards');
             </span>
         <?php endif; ?>
         <?php if (!empty($oauthStatus['last_error'])): ?>
-            <span class="muted" style="color:#b91c1c;">上次错误：<?php echo e(mb_substr_admin($oauthStatus['last_error'], 0, 80)); ?></span>
+            <span class="muted"
+                style="color:#b91c1c;">上次错误：<?php echo e(mb_substr_admin($oauthStatus['last_error'], 0, 80)); ?></span>
         <?php endif; ?>
     </div>
 
@@ -504,15 +499,19 @@ admin_layout_start('今日热榜', 'hotboards');
         <input type="hidden" name="action" value="save_linuxdo_oauth_app">
         <label>
             <span>Client ID</span>
-            <input type="text" name="linuxdo_client_id" value="<?php echo e($oauthApp['client_id']); ?>" placeholder="在 connect.linux.do 申请后获得" autocomplete="off">
+            <input type="text" name="linuxdo_client_id" value="<?php echo e($oauthApp['client_id']); ?>"
+                placeholder="在 connect.linux.do 申请后获得" autocomplete="off">
         </label>
         <label>
-            <span>Client Secret <?php if ($oauthApp['client_secret'] !== ''): ?><em class="muted">已保存，留空不修改</em><?php endif; ?></span>
-            <input type="password" name="linuxdo_client_secret" value="" autocomplete="off" placeholder="<?php echo $oauthApp['client_secret'] !== '' ? '已配置，填写则覆盖' : 'Client Secret'; ?>">
+            <span>Client Secret <?php if ($oauthApp['client_secret'] !== ''): ?><em
+                        class="muted">已保存，留空不修改</em><?php endif; ?></span>
+            <input type="password" name="linuxdo_client_secret" value="" autocomplete="off"
+                placeholder="<?php echo $oauthApp['client_secret'] !== '' ? '已配置，填写则覆盖' : 'Client Secret'; ?>">
         </label>
         <label>
             <span>回调地址 Redirect URI</span>
-            <input type="text" name="linuxdo_redirect_uri" value="<?php echo e($oauthApp['redirect_uri'] !== '' ? $oauthApp['redirect_uri'] : $callbackHint); ?>">
+            <input type="text" name="linuxdo_redirect_uri"
+                value="<?php echo e($oauthApp['redirect_uri'] !== '' ? $oauthApp['redirect_uri'] : $callbackHint); ?>">
         </label>
         <p class="muted" style="margin:0 0 12px;font-size:0.88rem;line-height:1.6;">
             在 <a href="https://connect.linux.do/" target="_blank" rel="noopener">connect.linux.do</a> → 我的应用接入 → 申请新接入，
@@ -558,7 +557,8 @@ admin_layout_start('今日热榜', 'hotboards');
         <form method="post" style="display:inline;" data-confirm="仅清除 OAuth 令牌，保留已保存的 API Key / Cookie？">
             <?php echo csrf_field(); ?>
             <input type="hidden" name="action" value="revoke_linuxdo_oauth">
-            <button type="submit" class="btn btn-secondary" <?php echo !$hasOAuthToken ? 'disabled' : ''; ?>>仅解绑 OAuth</button>
+            <button type="submit" class="btn btn-secondary" <?php echo !$hasOAuthToken ? 'disabled' : ''; ?>>仅解绑
+                OAuth</button>
         </form>
         <form method="post" style="display:inline;" data-confirm="确定解绑 OAuth 并清除全部 Linux.do 凭证（含 API Key / Cookie）？">
             <?php echo csrf_field(); ?>
@@ -589,18 +589,23 @@ admin_layout_start('今日热榜', 'hotboards');
                 </select>
             </label>
             <label>
-                <span>Cookie <?php if ($hasCookie): ?><em class="muted">当前：<?php echo e($cookieHint); ?></em><?php endif; ?></span>
+                <span>Cookie <?php if ($hasCookie): ?><em
+                            class="muted">当前：<?php echo e($cookieHint); ?></em><?php endif; ?></span>
                 <textarea name="linuxdo_cookie" rows="3" placeholder="可选：浏览器 Cookie 整段"></textarea>
             </label>
-            <label class="switch-label"><input type="checkbox" name="update_cookie" value="1"> <span>更新 Cookie</span></label>
+            <label class="switch-label"><input type="checkbox" name="update_cookie" value="1"> <span>更新
+                    Cookie</span></label>
             <label>
                 <span>API Key</span>
-                <input type="password" name="linuxdo_api_key" value="" autocomplete="off" placeholder="<?php echo $hasApi ? '已配置' : 'Api-Key'; ?>">
+                <input type="password" name="linuxdo_api_key" value="" autocomplete="off"
+                    placeholder="<?php echo $hasApi ? '已配置' : 'Api-Key'; ?>">
             </label>
-            <label class="switch-label"><input type="checkbox" name="update_api_key" value="1"> <span>更新 API Key</span></label>
+            <label class="switch-label"><input type="checkbox" name="update_api_key" value="1"> <span>更新 API
+                    Key</span></label>
             <label>
                 <span>API Username</span>
-                <input type="text" name="linuxdo_api_username" value="<?php echo e($cred['api_username'] !== 'system' || $hasApi ? $cred['api_username'] : ''); ?>">
+                <input type="text" name="linuxdo_api_username"
+                    value="<?php echo e($cred['api_username'] !== 'system' || $hasApi ? $cred['api_username'] : ''); ?>">
             </label>
             <div class="form-actions">
                 <button type="submit" class="btn btn-secondary">保存手动凭证</button>
@@ -672,11 +677,13 @@ admin_layout_start('今日热榜', 'hotboards');
             <input type="hidden" name="action" value="save_52pojie_cookie">
             <label>
                 <span>用户名（可选）</span>
-                <input type="text" name="pojie_username" maxlength="80" placeholder="便于后台识别" value="<?php echo e($cred52['username'] ?? ''); ?>">
+                <input type="text" name="pojie_username" maxlength="80" placeholder="便于后台识别"
+                    value="<?php echo e($cred52['username'] ?? ''); ?>">
             </label>
             <label>
                 <span>Cookie <span style="color:#dc2626">*</span></span>
-                <textarea name="pojie_cookie" rows="5" required placeholder="F12 → Network → 任意 www.52pojie.cn 请求 → Request Headers → Cookie 整段粘贴。必须含 htVC_*_auth 与 htVC_*_saltkey"></textarea>
+                <textarea name="pojie_cookie" rows="5" required
+                    placeholder="F12 → Network → 任意 www.52pojie.cn 请求 → Request Headers → Cookie 整段粘贴。必须含 htVC_*_auth 与 htVC_*_saltkey"></textarea>
             </label>
             <p class="muted" style="font-size:0.85rem;line-height:1.6;">
                 请在<strong>已登录</strong>状态下复制；不要只复制 connect_* 字段。
@@ -696,26 +703,77 @@ admin_layout_start('今日热榜', 'hotboards');
 </div>
 
 <style>
-.hot-config-table .check-wrap { display:inline-flex; align-items:center; gap:6px; cursor:pointer; user-select:none; }
-.hot-config-table .order-btns { display:flex; gap:4px; }
-.hot-config-table tr.row-off { opacity: 0.72; }
-.hot-config-table tr.row-on td { background: #f8faff; }
-#linuxdo-auth code, #52pojie-auth code { background:#f1f5f9; padding:1px 6px; border-radius:4px; font-size:0.85em; }
-#linuxdo-auth select,
-#linuxdo-auth textarea,
-#linuxdo-auth input[type="text"],
-#linuxdo-auth input[type="password"] {
-    width: 100%;
-    max-width: 720px;
-    padding: 10px 12px;
-    border: 1px solid #e2e8f0;
-    border-radius: 8px;
-    font: inherit;
-}
-#linuxdo-auth label > span { display:block; margin-bottom:6px; font-weight:600; }
-#linuxdo-auth .stack-form label { display:block; margin-bottom:14px; }
-.auth-subhead { font-size:1rem; margin:18px 0 10px; font-weight:750; color:#1e293b; }
-.auth-advanced { margin-top:8px; border:1px dashed #cbd5e1; border-radius:10px; padding:10px 14px; background:#f8fafc; }
-.auth-advanced summary { cursor:pointer; font-weight:650; color:#475569; }
+    .hot-config-table .check-wrap {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        cursor: pointer;
+        user-select: none;
+    }
+
+    .hot-config-table .order-btns {
+        display: flex;
+        gap: 4px;
+    }
+
+    .hot-config-table tr.row-off {
+        opacity: 0.72;
+    }
+
+    .hot-config-table tr.row-on td {
+        background: #f8faff;
+    }
+
+    #linuxdo-auth code,
+    #52pojie-auth code {
+        background: #f1f5f9;
+        padding: 1px 6px;
+        border-radius: 4px;
+        font-size: 0.85em;
+    }
+
+    #linuxdo-auth select,
+    #linuxdo-auth textarea,
+    #linuxdo-auth input[type="text"],
+    #linuxdo-auth input[type="password"] {
+        width: 100%;
+        max-width: 720px;
+        padding: 10px 12px;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        font: inherit;
+    }
+
+    #linuxdo-auth label>span {
+        display: block;
+        margin-bottom: 6px;
+        font-weight: 600;
+    }
+
+    #linuxdo-auth .stack-form label {
+        display: block;
+        margin-bottom: 14px;
+    }
+
+    .auth-subhead {
+        font-size: 1rem;
+        margin: 18px 0 10px;
+        font-weight: 750;
+        color: #1e293b;
+    }
+
+    .auth-advanced {
+        margin-top: 8px;
+        border: 1px dashed #cbd5e1;
+        border-radius: 10px;
+        padding: 10px 14px;
+        background: #f8fafc;
+    }
+
+    .auth-advanced summary {
+        cursor: pointer;
+        font-weight: 650;
+        color: #475569;
+    }
 </style>
 <?php admin_layout_end(['assets/hotboards.js']); ?>

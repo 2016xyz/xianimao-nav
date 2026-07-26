@@ -959,20 +959,6 @@ function security_sanitize_head_html($html, $maxLen = 8000)
 }
 
 /**
- * 出站 HTTPS 是否校验证书（默认开启；setting ssl_verify_peer=0 可关闭）
- */
-function security_ssl_verify_peer()
-{
-    if (function_exists('setting_get')) {
-        $v = setting_get('ssl_verify_peer', '1');
-        if ($v === '0' || $v === 'false' || $v === 'off') {
-            return false;
-        }
-    }
-    return true;
-}
-
-/**
  * 留言/申请字段规范化与长度限制（入库前）
  * @return array{ok:bool,error?:string,data?:array}
  */

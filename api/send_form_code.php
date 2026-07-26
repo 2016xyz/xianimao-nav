@@ -9,12 +9,15 @@ header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    http_response_code(405);
+    header('Allow: POST');
     echo json_encode(['ok' => false, 'message' => '请使用 POST'], JSON_UNESCAPED_UNICODE);
     exit;
 }
 
 $token = (string) ($_POST['csrf_token'] ?? ($_POST['_csrf'] ?? ''));
 if (!csrf_verify($token)) {
+    http_response_code(403);
     echo json_encode(['ok' => false, 'message' => '安全校验失败，请刷新页面'], JSON_UNESCAPED_UNICODE);
     exit;
 }
@@ -29,10 +32,12 @@ if ($scope === 'message') {
         $data = load_site_data();
         $em = $data['site']['enable_message'] ?? '1';
         if ($em === '0' || $em === 0 || $em === false) {
+            http_response_code(403);
             echo json_encode(['ok' => false, 'message' => '留言功能已关闭'], JSON_UNESCAPED_UNICODE);
             exit;
         }
     } catch (Throwable $e) {
+        http_response_code(503);
         echo json_encode(['ok' => false, 'message' => '暂时无法发送验证码，请稍后再试'], JSON_UNESCAPED_UNICODE);
         exit;
     }
@@ -40,9 +45,13 @@ if ($scope === 'message') {
 
 $email = security_email($_POST['email'] ?? '');
 if ($email === null) {
+    http_response_code(400);
     echo json_encode(['ok' => false, 'message' => '请填写有效邮箱'], JSON_UNESCAPED_UNICODE);
     exit;
 }
 $result = mailer_send_form_code($email, $scope);
+if (empty($result['ok'])) {
+    http_response_code(!empty($result['rate_limited']) ? 429 : 400);
+}
 echo json_encode($result, JSON_UNESCAPED_UNICODE);
 exit;
